@@ -1,8 +1,8 @@
 // This is the video I saw that uses the laod cell. https://www.youtube.com/watch?v=LIuf2egMioA I also scrolled down and saw a comment to help save the callibrations.
 // I tried combining my code to spray the water and the Read_1x_load_cell code in the HX711 library. Since for some reason, I can't edit that without creating a new file.
-#include <Servo.h>
 #include <HX711_ADC.h>
 #include <EEPROM.h>
+// Any libraries or codes the is needed to be used for this one is put here. What is needed is a signal when the car is at the specified place and a signal that tells when a plant needs watering. Maybe also something else if we still do the pest control.
 int motorPin1 = 3;
 const int HX711_dout = 4; //mcu > HX711 dout pin
 const int HX711_sck = 5; //mcu > HX711 sck pin
@@ -13,16 +13,12 @@ HX711_ADC LoadCell(HX711_dout, HX711_sck);
 const int calVal_eepromAdress = 0;
 long t;
 int stopsig = 0; // this stopstig will stop the nozzle and tell the car that there is not enough water.
-int Servo spin;
 int pos = 0;
 int sign1 = 0; // This is the signal that determine which plant to water. 
-int sign2 = 0;
-int sign3 = 0;
+int atlocal = 0; // This will turn on the spray when the car has reached the specified location.
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(57600); delay(10);
-  Serial.println();
-  Serial.println("Starting...");
 
   LoadCell.begin();
   float calibrationValue; // calibration value (see example file "Calibration.ino")
@@ -41,9 +37,7 @@ void setup() {
   }
   else {
     LoadCell.setCalFactor(calibrationValue); // set calibration value (float)
-    Serial.println("Startup is complete");
   }
-spin.attach(6); // pin 6
 pinMode(motorPin1, OUTPUT);
 digitalWrite(motorPin1, LOW);
 }
@@ -60,11 +54,10 @@ void loop() {
   if (newDataReady) {
     if (millis() > t + serialPrintInterval) {
       float i = LoadCell.getData();
-      Serial.print("Load_cell output val: ");
       Serial.println(i);
       newDataReady = 0;
       t = millis();
-      if (i <= x) { //i is the weight of the water container. If weight is less than required amount, then the machine will stop.
+      if (i <= x) { //i is the weight of the water container. If weight is less than required amount, then the machine will stop. X will be changed when we got a specified value.
         stopsig = 1;
       }
     }
@@ -78,37 +71,12 @@ void loop() {
   }
 
   // check if last tare operation is complete:
-  if (LoadCell.getTareStatus() == true) {
-    Serial.println("Tare complete");
-  }
-  if (stopsig == 0) {
-   while (sign1 == 1) {
-   spin.write(45); // plant #1 is 45 degrees from the car
-   delay (1000)
+  if (stopsig == 0 && atlocal == 1) {
+   while (sign1 == 1 && atlocal == 1) {
    digitalWrite(motorPin1, HIGH);
    delay(1000);
    digitalWrite(motorPin1, LOW);
    delay (1000);
    }
-   while (sign2 == 1) { //For motorpin1, I'm leaving it at 1000 delay for now, but once we're testing the distance, then I'll change it.
-    spin.write(90);
-    delay (1000)
-   digitalWrite(motorPin1, HIGH);
-   delay(1000);
-   digitalWrite(motorPin1, LOW);
-   delay (1000);
-   }
-   while (sign3 == 1) {
-   spin.write(135);
-   delay (1000)
-   digitalWrite(motorPin1, HIGH);
-   delay(1000);
-   digitalWrite(motorPin1, LOW);
-   delay (1000);
-   }
-   spin.write(0);
-  }
-  else {
-    spin.write(0); //I wan to try and reset the position of the nozzle when not in use.
   }
 }
