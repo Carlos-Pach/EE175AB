@@ -15,12 +15,12 @@ soilMoistureValue = analogRead(A7);  //read analog value from the sensor
 //BTserial.println(soilMoistureValue); //sends value to serial
 //delay(500);
 
-if (soilMoistureValue < 400){ // water level starts greater than 400
+if (soilMoistureValue < 400){ // water level starts greater than 400. if above 400, level is ok, sends '0'
   BTserial.println('0');
   digitalWrite(led, LOW);
   delay(100);
 }
-else{ //once the level is too low, send high signal
+else{ //once the level is too low, send high signal '1'
   BTserial.println('1');
   digitalWrite(led, HIGH);
   delay(100);
