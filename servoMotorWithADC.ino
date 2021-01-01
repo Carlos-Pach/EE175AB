@@ -16,7 +16,7 @@
                  (3) Finish BT module code
                     (a) Fix Serial monitor outputting 25 repeatedly
                        (i) Problem with loop (?)
-                 (4) fix ino files not being included (e.g. funName not declared in scope)
+                 (4) finish HC-SR04 EMA filter
 */
 
 /* include libraries */
@@ -27,21 +27,26 @@
 
 /* define macros */
 #define pinA0         0     // analog  (pin 14)
+#define trigPin       2     // trigger pin (pin 2)
+#define echoPin       3     // echo pin (pin 3)
 #define servoPin      9     // pin 9
 #define pin10_PWM     10    // pin 10 (PWM)
+#define ledPin        13    // pin 13 (built-in LED)
 #define buttonPin     15    // pin 15 (analog 1)
 #define RxPin         0     // pin 0 (digital 0)
 #define TxPin         1     // pin 1 (digital 1) 
 
 #define ARR_SIZE      7     // size of look up table (LUT)
-#define TASKS_NUM     4     // number of tasks
-#define BAUD_RATE     38400 // baud rate for serial
+#define TASKS_NUM     5     // number of tasks
+#define BAUD_RATE     9600 // baud rate for serial
+#define BT_BAUD_RATE  9600  // baud rate for BT
 
 Servo myServo ;
 SoftwareSerial BT(RxPin, TxPin) ;
 
 char getChar ;    /* get char from BT device */
 unsigned char str[50] = { 0 };    /* char array for string */
+unsigned long distanceArrEMA_g[100 - 4 + 1] = { 0 } ; /* smoothed out array, N = 100 */ 
 
 typedef enum {False, True} Bool;    // 0 - false, 1 - true
 
@@ -61,12 +66,13 @@ task tasks[TASKS_NUM] ; // number of tasks in struct
 
 const unsigned long taskNum = TASKS_NUM ;
 const unsigned long tasksPeriodGCD = 5000 ; // 5 [ms]
+const unsigned long periodUltraSonic = 30000; // 30 [ms]
 const unsigned long periodBTModule = 25000 ; // 25 [ms] 
 const unsigned long periodIfPressed = 50000 ; // 50 [ms]
 const unsigned long periodServo = 20000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
 const unsigned long periodOutputLED = 250000 ; // 250 [ms]
 
-unsigned char runningTasks[3] = {255} ; /* Track running tasks, [0] always idle */
+unsigned char runningTasks[5] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
 unsigned char currentTask ; /* index of highest priority task in runningTask */
 
@@ -79,6 +85,8 @@ enum SM_outputToServo{SM3_init, SM3_turnOffServo, SM3_turnOnServo } ;
 int TickFct_servos(int state) ;
 enum SM_bluetooth{SM4_init, SM4_wait, SM4_disconnect, SM4_connect } ;
 int TickFct_HC05(int state) ;
+enum SM_ultraSonic{SM5_init, SM5_measure, SM5_filter} ;
+int TickFct_ultraSonic(int state) ;
 
 void TimerISR(void){    /* Scheduler code */
   unsigned char i ;     /* adjust according to number of tasks */
@@ -118,6 +126,8 @@ unsigned int valPWM_g ;
 /* declare function prototypes */
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
+unsigned long measureDistance(unsigned long arr[]) ;
+void filterEMA(unsigned long arr[]) ;
 /* end function prototypes */
 
 
@@ -261,8 +271,8 @@ int TickFct_servos(int state){
 
 /* State Machine 4 */
 int TickFct_HC05(int state){
-  unsigned char i ;
-  unsigned char numBytes ; 
+  unsigned char i, numBytes;
+  unsigned char arr[] = {} ;  // create empty array buffer
   
   switch(state){  // state transitions
     case SM4_init:
@@ -272,11 +282,13 @@ int TickFct_HC05(int state){
       break ;
     case SM4_wait:
       Serial.println("DEBUG STATEMENT: SM4_wait") ;
-      Serial.print("numBytes: "); Serial.println(numBytes) ;
+      delay(200) ;
+      numBytes = BT.available() ;
+      Serial.println("numBytes: "); Serial.println(numBytes) ;
       
-      if(numBytes > 0){ /* if buffer has message, read it */
+      if(BT.available() > 0){ /* if buffer has message, read it */
         state = SM4_connect ;  
-      } else if(!(numBytes > 0)){ /* if there is no message, wait until one is received */
+      } else if(!(BT.available() > 0)){ /* if there is no message, wait until one is received */
         state = SM4_wait ;
       } else{
         state = SM4_wait ;  
@@ -287,7 +299,9 @@ int TickFct_HC05(int state){
       break ;
     case SM4_connect:
       Serial.println("DEBUG STATEMENT: SM4_connect") ;
+      numBytes = BT.available() ;
       Serial.print("numBytes: "); Serial.println(numBytes) ;
+      delay(500) ;
  
       if(numBytes > 0){ /* if buffer has message, read it */
         state = SM4_connect ;  
@@ -302,38 +316,97 @@ int TickFct_HC05(int state){
       state = SM4_init ;
       break ;
   }
+  
   switch(state){  // state actions ;
     case SM4_init:
       numBytes = BT.available() ;
-      digitalWrite(LED_BUILTIN, LOW) ;  /* turn off built-in LED if in state */
+      digitalWrite(ledPin, LOW) ;  /* turn off built-in LED if in state */
       break ;
     case SM4_wait:
-      numBytes = BT.available() ;
-      digitalWrite(LED_BUILTIN, LOW) ;  /* turn off built-in LED if in state */
+      //numBytes = BT.available() ;
+      BT.print("test action\n") ;
+      delay(20) ;
+      digitalWrite(ledPin, HIGH) ;  /* turn off built-in LED if in state */
       break ;
     case SM4_disconnect:
-      __asm("nop") ;
       break ;
     case SM4_connect:
-      digitalWrite(LED_BUILTIN, HIGH) ; /* light up built-in LED if in state */
-      
-      for(i = 0; i < numBytes; i++){  /* copy msg from trasmitter */
-        str[i] = BT.read() ;
-      }
-      for(i = 0 ; i < numBytes; i++){ /* echo msg to console and transmitter */
-        if(i == (numBytes - 1)){
-          Serial.println(str[i]) ;
-          BT.write(str[i]) ; BT.write("\n") ;
-        } else {
-          BT.write(str[i]) ;
-        }
-      }
+      digitalWrite(ledPin, LOW) ;
+      delay(500) ;
+      digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
+      delay(500) ;
+
       i = 0 ;
-      delay(3000) ;  
+      while(numBytes > 0){  // count chars from buffer
+          arr[i] = BT.read() ;
+          i++ ;
+          numBytes-- ;
+      }
+      delay(20) ;
+      for(i = 0; i < sizeof(arr)/sizeof(arr[0]); i++){
+        Serial.print(arr[i]) ;  
+      }
+      delay(20) ;
       break ;
     default:
       break ;
   }
+  return state ;  
+}
+
+/* State Machine 5 */
+int TickFct_ultraSonic(int state){
+  unsigned int i = 0 ;  /* fill up distance array */
+  static unsigned char j = 1 ; /* count until EMA is called */
+  unsigned long distanceArr[100] = { 0 } ; /* measure distance */
+  const unsigned char n = sizeof(distanceArr)/sizeof(distanceArr[0]) ;  /* size of arr */
+  //unsigned long distanceArrEMA_g[n - 4 + 1] = { 0 } ; /* smoothed out array */ 
+  
+  switch(state){
+    case SM5_init:
+      state = SM5_measure ;
+      break ;
+    case SM5_measure:
+      if(j < 100){
+        state = SM5_measure ;
+      } else{ // j >= 100
+        state = SM5_filter ;  
+      }
+      break ;
+    case SM5_filter:
+      if(j < 100){
+        state = SM5_measure ;  
+      } else{
+        state = SM5_filter ;
+      }
+      break ;
+    default:
+      state = SM5_measure ;
+      break ;
+  }
+  switch(state){
+    case SM5_init:
+      Serial.println("DEBUG STATEMENT: SM5_init") ;
+      break ;
+    case SM5_measure:
+      Serial.println("DEBUG STATEMENT: SM5_measure") ;
+      for(i = 0; i < sizeof(distanceArr)/sizeof(distanceArr[0]) ; i++){ // measure distance function call
+        distanceArr[i] = measureDistance(distanceArr) ;
+        j++ ;
+      }
+      Serial.print("distance: ") ; Serial.println(distanceArr[50]) ;
+      break ;
+    case SM5_filter:
+      Serial.println("DEBUG STATEMENT: SM5_filter") ;
+      // call EMA filter function
+      filterEMA(distanceArr) ;
+      Serial.print("EMA: "); Serial.println(distanceArrEMA_g[50]) ;
+      j = 0 ;
+      break ;
+    default:
+      Serial.println("DEBUG STATEMENT: SM5_default") ;
+      break ;  
+  }  
   return state ;  
 }
 /* end SM functions */
@@ -347,19 +420,23 @@ void setup() {
   pinMode(pin10_PWM, OUTPUT) ; /* potentiometer pin */
   analogWriteResolution(10) ; /* 10 bit PWM */
   pinMode(buttonPin, INPUT) ; /* button pin */
+
+  pinMode(echoPin, INPUT) ;   /* echo pin */
+  pinMode(trigPin, OUTPUT) ;  /* trig pin */
   
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
   delay(20) ; /* delay for 20 [ms] to complete period */
   
   // myTimer.begin(TimerISR, tasksPeriodGCD) ; /* task scheduler set up */
-
-  // mySerial.begin(38400) ;   /* UART serial */
-  // mySerial.println("test") ;
-  pinMode(LED_BUILTIN, OUTPUT) ;
-  BT.begin(BAUD_RATE) ;
+  
+  pinMode(ledPin, OUTPUT) ;
+  pinMode(RxPin, INPUT) ;
+  pinMode(TxPin, OUTPUT) ;
+  BT.begin(BT_BAUD_RATE) ;
   BT.println("Connection established") ;
 
+  
   /* initialize scheduler */
   unsigned char i = 0 ;
   tasks[i].state = SM1_init ;
@@ -387,6 +464,13 @@ void setup() {
   tasks[i].period = periodBTModule ;
   tasks[i].elapsedTime = tasks[i].period ;
   tasks[i].TickFct = &TickFct_HC05 ;
+  tasks[i].isRunning = False ;
+  i++ ;
+
+  tasks[i].state = SM5_init ;
+  tasks[i].period = periodUltraSonic ;
+  tasks[i].elapsedTime = tasks[i].period ;
+  tasks[i].TickFct = &TickFct_ultraSonic ;
   tasks[i].isRunning = False ;
   i++ ;
 }
@@ -449,4 +533,51 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
   Serial.println("ERROR: value not found in array") ;
   return 0 ;
 }
-/* end servo functions */
+
+/* 
+  Function name: measureDistance
+  Purpose: measures distance from HC-SR04 ultrasonic sensor
+  Details: Calculates distance between an object and the 
+           ultrasonic sensor. 
+  Parameters:
+      Name              Details
+      [In] *arr         - fills an array with distance values
+  TODO: N/A
+*/
+unsigned long measureDistance(unsigned long arr[]){
+  const unsigned char distanceConst = 34 ;  /* (duration * 34 / 1000) / 2*/
+
+  /* clear trig pin */
+  digitalWrite(trigPin, LOW) ;
+  /* measure trig pin */
+  digitalWrite(trigPin, HIGH) ;
+  delayMicroseconds(10) ;
+  digitalWrite(trigPin, LOW) ;
+  /* calculate distance */
+  /* formula: duration * 0.034 / 2 */
+  return (distanceConst * pulseIn(echoPin, HIGH))/2000 ;  /* fixed point arithmetic used */
+}
+
+/* 
+  Function name: filterEMA
+  Purpose: Smooths out electrical signals from peripherals
+  Details: Uses exponential moving average to smooth out noise in order to
+           get more accurate data. N = 4
+  Parameters:
+      Name            Details
+      [In] *arr       - array with filled values
+      [Out] *arrEMA   - filtered EMA array
+*/
+void filterEMA(unsigned long arr[]){
+  const unsigned char N = 4 ; // 4-point EMA
+  unsigned char i = 0 ; // count
+
+  Serial.println("DEBUG STATEMENT: filterEMA") ;
+  distanceArrEMA_g[0] = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;
+  
+  for(i = N; i < sizeof(arr)/sizeof(arr[0]); i++){ // iterate thru arr[] entries
+    distanceArrEMA_g[i - 3] = (arr[i] + arr[i-1] + arr[i-2] + arr[i-3])/4 ;
+    Serial.print("DEBUG STATEMENT: EMA is "); Serial.println(distanceArrEMA_g[i]) ;
+  }
+}
+/* end functions */
