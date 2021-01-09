@@ -10,13 +10,14 @@
              (LUT) to output the direction in which the wheels will point. A button will mimic
              acceptance/denial of the servo during waiting times.
 
-    Notes/TO DO: (1) Finish servo code
-                    (a) Fix voltage source b/c servo is oscillating too much (LPF?)
-                 (2) Added priority to task struct
-                 (3) Finish BT module code
+    Notes/TO DO: (1) Added priority to task struct
+                 (2) Finish BT module code
                     (a) Fix Serial monitor outputting 25 repeatedly
                        (i) Problem with loop (?)
-                 (4) finish HC-SR04 EMA filter
+                 (3) finish HC-SR04 EMA filter
+                    (a) Use "static" keyword to prevent variables from being overwritten/reset
+                 (4) Finish PID + plant code
+                 (5) create water fun function/SM
 */
 
 /* include libraries */
@@ -27,14 +28,14 @@
 
 /* define macros */
 #define pinA0         0     // analog  (pin 14)
+#define RxPin         0     // pin 0 (digital 0)
+#define TxPin         1     // pin 1 (digital 1)
 #define trigPin       2     // trigger pin (pin 2)
 #define echoPin       3     // echo pin (pin 3)
 #define servoPin      9     // pin 9
 #define pin10_PWM     10    // pin 10 (PWM)
 #define ledPin        13    // pin 13 (built-in LED)
-#define buttonPin     15    // pin 15 (analog 1)
-#define RxPin         0     // pin 0 (digital 0)
-#define TxPin         1     // pin 1 (digital 1) 
+#define buttonPin     15    // pin 15 (analog 1) 
 
 #define ARR_SIZE      7     // size of look up table (LUT)
 #define TASKS_NUM     5     // number of tasks
@@ -46,7 +47,6 @@ SoftwareSerial BT(RxPin, TxPin) ;
 
 char getChar ;    /* get char from BT device */
 unsigned char str[50] = { 0 };    /* char array for string */
-unsigned long distanceArrEMA_g[100 - 4 + 1] = { 0 } ; /* smoothed out array, N = 100 */ 
 
 typedef enum {False, True} Bool;    // 0 - false, 1 - true
 
@@ -119,6 +119,7 @@ const uint16_t arrPWM[ARR_SIZE] = {0, 170, 340, 510, 680, 850, 1023} ;
 
 /* declare global variables */
 Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
+Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
 unsigned int valPWM_g ;
 
 
@@ -126,8 +127,8 @@ unsigned int valPWM_g ;
 /* declare function prototypes */
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
-unsigned long measureDistance(unsigned long arr[]) ;
-void filterEMA(unsigned long arr[]) ;
+unsigned long measureDistance(unsigned long *arr) ;
+void filterEMA(unsigned long arr[], unsigned long *arrEMA) ;
 /* end function prototypes */
 
 
@@ -358,9 +359,9 @@ int TickFct_HC05(int state){
 int TickFct_ultraSonic(int state){
   unsigned int i = 0 ;  /* fill up distance array */
   static unsigned char j = 1 ; /* count until EMA is called */
-  unsigned long distanceArr[100] = { 0 } ; /* measure distance */
+  static unsigned long distanceArr[100] = { } ; /* measure distance */
   const unsigned char n = sizeof(distanceArr)/sizeof(distanceArr[0]) ;  /* size of arr */
-  //unsigned long distanceArrEMA_g[n - 4 + 1] = { 0 } ; /* smoothed out array */ 
+  static unsigned long distanceArrEMA[n - 4 + 1] = { } ; /* smoothed out array, 4 is the MA value */ 
   
   switch(state){
     case SM5_init:
@@ -399,8 +400,8 @@ int TickFct_ultraSonic(int state){
     case SM5_filter:
       Serial.println("DEBUG STATEMENT: SM5_filter") ;
       // call EMA filter function
-      filterEMA(distanceArr) ;
-      Serial.print("EMA: "); Serial.println(distanceArrEMA_g[50]) ;
+      filterEMA(distanceArr, distanceArrEMA) ;
+      Serial.print("EMA: "); Serial.println(distanceArrEMA[50]) ;
       j = 0 ;
       break ;
     default:
@@ -544,7 +545,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
       [In] *arr         - fills an array with distance values
   TODO: N/A
 */
-unsigned long measureDistance(unsigned long arr[]){
+unsigned long measureDistance(unsigned long *arr){
   const unsigned char distanceConst = 34 ;  /* (duration * 34 / 1000) / 2*/
 
   /* clear trig pin */
@@ -565,19 +566,26 @@ unsigned long measureDistance(unsigned long arr[]){
            get more accurate data. N = 4
   Parameters:
       Name            Details
-      [In] *arr       - array with filled values
+      [In] arr[]       - array with filled values
       [Out] *arrEMA   - filtered EMA array
+
+  TODO:
+    
 */
-void filterEMA(unsigned long arr[]){
+void filterEMA(unsigned long arr[], unsigned long *arrEMA){
   const unsigned char N = 4 ; // 4-point EMA
   unsigned char i = 0 ; // count
 
   Serial.println("DEBUG STATEMENT: filterEMA") ;
-  distanceArrEMA_g[0] = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;
+  
+  *arrEMA = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;  /* get 4-EMA and copy to arrEMA[0] */
+  *arrEMA++ ;
+  Serial.print("arrEMA: "); Serial.println(*arrEMA) ;
   
   for(i = N; i < sizeof(arr)/sizeof(arr[0]); i++){ // iterate thru arr[] entries
-    distanceArrEMA_g[i - 3] = (arr[i] + arr[i-1] + arr[i-2] + arr[i-3])/4 ;
-    Serial.print("DEBUG STATEMENT: EMA is "); Serial.println(distanceArrEMA_g[i]) ;
+    *arrEMA = (arr[i] + arr[i-1] + arr[i-2] + arr[i-3])/4 ;
+    *arrEMA++ ;
+    Serial.print("arrEMA: "); Serial.println(*arrEMA) ;
   }
 }
 /* end functions */
