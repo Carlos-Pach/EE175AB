@@ -65,14 +65,14 @@ typedef struct task{
 task tasks[TASKS_NUM] ; // number of tasks in struct
 
 const unsigned long taskNum = TASKS_NUM ;
-const unsigned long tasksPeriodGCD = 5000 ; // 5 [ms]
-const unsigned long periodUltraSonic = 30000; // 30 [ms]
-const unsigned long periodBTModule = 25000 ; // 25 [ms] 
-const unsigned long periodIfPressed = 50000 ; // 50 [ms]
-const unsigned long periodServo = 20000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
-const unsigned long periodOutputLED = 250000 ; // 250 [ms]
+const unsigned long tasksPeriodGCD = 5000/1000 ; // 5 [ms]
+const unsigned long periodUltraSonic = 30000/1000; // 30 [ms]
+const unsigned long periodBTModule = 25000/1000 ; // 25 [ms] 
+const unsigned long periodIfPressed = 50000/1000 ; // 50 [ms]
+const unsigned long periodServo = 20000/1000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
+const unsigned long periodOutputLED = 250000/1000 ; // 250 [ms]
 
-unsigned char runningTasks[5] = {255} ; /* Track running tasks, [0] always idle */
+unsigned char runningTasks[TASKS_NUM] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
 unsigned char currentTask ; /* index of highest priority task in runningTask */
 
@@ -128,7 +128,7 @@ unsigned int valPWM_g ;
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
 unsigned long measureDistance(unsigned long *arr) ;
-void filterEMA(unsigned long arr[], unsigned long *arrEMA) ;
+void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;
 /* end function prototypes */
 
 
@@ -273,7 +273,7 @@ int TickFct_servos(int state){
 /* State Machine 4 */
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
-  unsigned char arr[] = {} ;  // create empty array buffer
+  char arr[] = {} ;  // create empty array buffer
   
   switch(state){  // state transitions
     case SM4_init:
@@ -325,7 +325,7 @@ int TickFct_HC05(int state){
       break ;
     case SM4_wait:
       //numBytes = BT.available() ;
-      BT.print("test action\n") ;
+      //BT.print("DEBUG STATEMENT: test action\n") ;
       delay(20) ;
       digitalWrite(ledPin, HIGH) ;  /* turn off built-in LED if in state */
       break ;
@@ -338,16 +338,25 @@ int TickFct_HC05(int state){
       delay(500) ;
 
       i = 0 ;
+      //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
+      /* get string from BT buffer */
       while(numBytes > 0){  // count chars from buffer
           arr[i] = BT.read() ;
+          Serial.print(arr[i]) ;  // debug statement, print to serial
+          BT.print(arr[i]) ;      // debug statement, print to BT terminal
           i++ ;
           numBytes-- ;
       }
-      delay(20) ;
-      for(i = 0; i < sizeof(arr)/sizeof(arr[0]); i++){
-        Serial.print(arr[i]) ;  
+      delay(20) ;   // 2000 [ms] --> 20 [ms]
+      /* print BT buffer to serial monitor */
+      /*
+      Serial.print("DEBUG STATEMENT: sizeof arrBT "); Serial.println(sizeof(arr)/sizeof(arr[0])) ;  // outputs 0
+      for(i = 0; i < 4; i++){
+        Serial.print(arr[i]) ;
+        BT.print(arr[i]) ;
       }
-      delay(20) ;
+      delay(2000) ;
+      */
       break ;
     default:
       break ;
@@ -358,10 +367,11 @@ int TickFct_HC05(int state){
 /* State Machine 5 */
 int TickFct_ultraSonic(int state){
   unsigned int i = 0 ;  /* fill up distance array */
+  const unsigned char K_MA = 4 ;  /* moving average value */
   static unsigned char j = 1 ; /* count until EMA is called */
   static unsigned long distanceArr[100] = { } ; /* measure distance */
   const unsigned char n = sizeof(distanceArr)/sizeof(distanceArr[0]) ;  /* size of arr */
-  static unsigned long distanceArrEMA[n - 4 + 1] = { } ; /* smoothed out array, 4 is the MA value */ 
+  static unsigned long distanceArrEMA[n - K_MA + 1] = { } ; /* smoothed out array, 4 is the MA value */ 
   
   switch(state){
     case SM5_init:
@@ -400,8 +410,13 @@ int TickFct_ultraSonic(int state){
     case SM5_filter:
       Serial.println("DEBUG STATEMENT: SM5_filter") ;
       // call EMA filter function
-      filterEMA(distanceArr, distanceArrEMA) ;
-      Serial.print("EMA: "); Serial.println(distanceArrEMA[50]) ;
+      filterEMA(distanceArr, distanceArrEMA, K_MA) ;
+      /*
+      Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
+      for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+        Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+      }
+      */
       j = 0 ;
       break ;
     default:
@@ -567,25 +582,37 @@ unsigned long measureDistance(unsigned long *arr){
   Parameters:
       Name            Details
       [In] arr[]       - array with filled values
-      [Out] *arrEMA   - filtered EMA array
+      [Out] arrEMA[]   - filtered EMA array
+      [In] MA         - Moving average number
 
   TODO:
-    
+    Fix pass-by values and array address
 */
-void filterEMA(unsigned long arr[], unsigned long *arrEMA){
-  const unsigned char N = 4 ; // 4-point EMA
+void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
   unsigned char i = 0 ; // count
+  unsigned long *ptr = arrEMA ;
 
   Serial.println("DEBUG STATEMENT: filterEMA") ;
+//  Serial.print("DEBUG STATEMENT: sizeof arr ") ; Serial.println(sizeof(arr)/sizeof(arr[0])) ;
+
+//  Serial.print("DEBUG STATEMENT: arr[] ") ;
+//  for(i = 0; i < MA; i++){
+//    Serial.print(arr[i]) ; Serial.print(" ");
+//  }
+  arrEMA[0] = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;
+    
+  //Serial.print("DEBUG STATEMENT: arrEMA: "); Serial.println(arrEMA[0]) ;
+  //delay(3000) ;
   
-  *arrEMA = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;  /* get 4-EMA and copy to arrEMA[0] */
-  *arrEMA++ ;
-  Serial.print("arrEMA: "); Serial.println(*arrEMA) ;
-  
-  for(i = N; i < sizeof(arr)/sizeof(arr[0]); i++){ // iterate thru arr[] entries
-    *arrEMA = (arr[i] + arr[i-1] + arr[i-2] + arr[i-3])/4 ;
-    *arrEMA++ ;
-    Serial.print("arrEMA: "); Serial.println(*arrEMA) ;
+  for(i = MA; i < 100; i++){
+    arrEMA[i - 3] = (arr[i] + arr[i - 1] + arr[i -2] + arr[i - 3])/4 ;
   }
+  
+//  Serial.print("DEBUG STATEMENT: arrEMA = ") ;
+//  for(i = 0; i < 97; i++){
+//    Serial.print(arrEMA[i]); Serial.print(" ") ;  
+//  }
+//  delay(5000) ;
+
 }
 /* end functions */
