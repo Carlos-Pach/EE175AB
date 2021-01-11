@@ -42,7 +42,7 @@ int weight_sens() {
 
 
 
-I believe this is all you need for the function and everything on top would need to be placed in setup or as global variables.
+//I believe this is all you need for the function and everything on top would need to be placed in setup or as global variables.
 
 //----------------------------------------------------------------------------------------------------
   // put your main code here, to run repeatedly:
