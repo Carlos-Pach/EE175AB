@@ -11,20 +11,17 @@
              acceptance/denial of the servo during waiting times.
 
     Notes/TO DO: (1) Added priority to task struct
-                 (2) Finish BT module code
-                    (a) Fix Serial monitor outputting 25 repeatedly
-                       (i) Problem with loop (?)
-                 (3) finish HC-SR04 EMA filter
-                    (a) Use "static" keyword to prevent variables from being overwritten/reset
-                 (4) Finish PID + plant code
-                 (5) create water fun function/SM
+                 (2) Finish PID + plant code
+                 (3) create water gun function/SM
+                 (4) Solve ultrasonic sensor inaccurate values at angle (> 5 degrees)
+                    a. Take sample measurements then plot on Excel for equation (?) 
+
 */
 
 /* include libraries */
 #include <Servo.h>
 #include <Snooze.h>
 #include <SoftwareSerial.h>
-// #include <NewSoftSerial.h>
 
 /* define macros */
 #define pinA0         0     // analog  (pin 14)
@@ -40,13 +37,13 @@
 #define ARR_SIZE      7     // size of look up table (LUT)
 #define TASKS_NUM     5     // number of tasks
 #define BAUD_RATE     9600 // baud rate for serial
-#define BT_BAUD_RATE  9600  // baud rate for BT
+#define BT_BAUD_RATE  9600  // baud rate for BT (HC-06 is 9600 by default)
 
 Servo myServo ;
 SoftwareSerial BT(RxPin, TxPin) ;
 
-char getChar ;    /* get char from BT device */
-unsigned char str[50] = { 0 };    /* char array for string */
+//char getChar ;    /* get char from BT device */
+//unsigned char str[50] = { 0 };    /* char array for string */
 
 typedef enum {False, True} Bool;    // 0 - false, 1 - true
 
@@ -121,6 +118,10 @@ const uint16_t arrPWM[ARR_SIZE] = {0, 170, 340, 510, 680, 850, 1023} ;
 Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
 unsigned int valPWM_g ;
+/* values for PID system ... can be changed as testing continues */
+const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
+const int ki = 1 ;  // ki - integral value for PID sys (0.001)
+const int kd = 3000 ;  // kd - derivative value for PID sys (3.0)
 
 
 
@@ -128,7 +129,11 @@ unsigned int valPWM_g ;
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
 unsigned long measureDistance(unsigned long *arr) ;
-void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;
+void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;   // smooths out data using simple moving average with value K (MA)
+void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;  // function caps array values to max distance
+int32_t calculateError(int desiredDist, int approxDist) ;  // function that calculates error for PID sys
+int32_t calculateInteg(void) ;  // function that calculates integral for PID sys
+int32_t calculateDeriv(void) ;  // function that calculates derivative for PID sys
 /* end function prototypes */
 
 
@@ -369,9 +374,10 @@ int TickFct_ultraSonic(int state){
   unsigned int i = 0 ;  /* fill up distance array */
   const unsigned char K_MA = 4 ;  /* moving average value */
   static unsigned char j = 1 ; /* count until EMA is called */
-  static unsigned long distanceArr[100] = { } ; /* measure distance */
+  static unsigned long distanceArr[100] = { 0 } ; /* measure distance */
   const unsigned char n = sizeof(distanceArr)/sizeof(distanceArr[0]) ;  /* size of arr */
-  static unsigned long distanceArrEMA[n - K_MA + 1] = { } ; /* smoothed out array, 4 is the MA value */ 
+  static unsigned long distanceArrEMA[n - K_MA + 1] = { 0 } ; /* smoothed out array, 4 is the MA value */ 
+  const unsigned char maxDist = 100 ;   /* maximum distance measured in [cm] */
   
   switch(state){
     case SM5_init:
@@ -405,7 +411,6 @@ int TickFct_ultraSonic(int state){
         distanceArr[i] = measureDistance(distanceArr) ;
         j++ ;
       }
-      Serial.print("distance: ") ; Serial.println(distanceArr[50]) ;
       break ;
     case SM5_filter:
       Serial.println("DEBUG STATEMENT: SM5_filter") ;
@@ -417,6 +422,8 @@ int TickFct_ultraSonic(int state){
         Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
       }
       */
+      // call cut off filter function
+      cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
       j = 0 ;
       break ;
     default:
@@ -425,6 +432,10 @@ int TickFct_ultraSonic(int state){
   }  
   return state ;  
 }
+
+/* State Machine 6 */
+
+
 /* end SM functions */
 
 
@@ -586,7 +597,7 @@ unsigned long measureDistance(unsigned long *arr){
       [In] MA         - Moving average number
 
   TODO:
-    Fix pass-by values and array address
+    N/A
 */
 void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
   unsigned char i = 0 ; // count
@@ -604,7 +615,7 @@ void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
   //Serial.print("DEBUG STATEMENT: arrEMA: "); Serial.println(arrEMA[0]) ;
   //delay(3000) ;
   
-  for(i = MA; i < 100; i++){
+  for(i = MA; i < 100; i++){  // start off at MA value as index
     arrEMA[i - 3] = (arr[i] + arr[i - 1] + arr[i -2] + arr[i - 3])/4 ;
   }
   
@@ -615,4 +626,52 @@ void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
 //  delay(5000) ;
 
 }
+
+/* 
+  Function name: cutOffFilter
+  Purpose: Caps array value to maximum distance
+  Details: The function iterates through a filtered array to cap distance
+
+  Parameters:
+      Name                Details
+      [In] arr[]          - address of array's first value
+      [In] maxDist        - maximum distance for array
+      [in] n              - size of array
+  TODO:
+    N/A
+*/
+void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
+    unsigned char i ;
+
+    //Serial.println("DEBUG STATEMENT: cutOffFilter") ;
+    for(i = 0; i < n; i++){ // begin loop
+      if(arr[i] > maxDist){ // determine if index's value exceeds max distance
+        //Serial.print("DEBUG STATEMENT: value exceeds max distance ") ;
+        //Serial.println(arr[i]) ;
+        //delay(1000) ; // 1000 [ms]
+        arr[i] = maxDist ;  
+      }  
+    }
+    
+}
+
+/* 
+  Function name: calculateError
+  Purpose: Calculates error value for PID controller 
+  Details: Uses a desired distance to calculate error value in PID system
+
+  Parameters:
+      Name                  Details
+      [In] desiredDist      - desired distance of object
+      [In] approxDist       - approximate distance of object
+
+  Return value:
+      errorVal
+  TODO:
+    N/A
+*/
+int32_t calculateError(int desiredDist, int approxDist){
+  return (desiredDist - approxDist) ;  
+}
+
 /* end functions */
