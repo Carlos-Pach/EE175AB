@@ -11,16 +11,18 @@
              acceptance/denial of the servo during waiting times.
 
     Notes/TO DO: (1) Added priority to task struct
-                 (2) Finish PID + plant code
+                 (2) Test PI controller code
+                    (a) Wait for Vivian to finish her portions
                  (3) create water gun function/SM
-                 (4) Solve ultrasonic sensor inaccurate values at angle (> 5 degrees)
-                    a. Take sample measurements then plot on Excel for equation (?) 
+                 (4) Alter ultrasonic sensor code to cap distance if no value
+                     is returned within a certain time 
 
 */
 
 /* include libraries */
 #include <Servo.h>
 #include <Snooze.h>
+#include <Wire.h>
 #include <SoftwareSerial.h>
 
 /* define macros */
@@ -33,10 +35,13 @@
 #define pin10_PWM     10    // pin 10 (PWM)
 #define ledPin        13    // pin 13 (built-in LED)
 #define buttonPin     15    // pin 15 (analog 1) 
+#define i2cPinSCL     16    // pin 16 (SCL0)
+#define i2cPinSDA     17    // pin 17 (SDA0)
 
+#define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
-#define TASKS_NUM     5     // number of tasks
-#define BAUD_RATE     9600 // baud rate for serial
+#define TASKS_NUM     6     // number of tasks
+#define BAUD_RATE     9600  // baud rate for serial
 #define BT_BAUD_RATE  9600  // baud rate for BT (HC-06 is 9600 by default)
 
 Servo myServo ;
@@ -45,7 +50,19 @@ SoftwareSerial BT(RxPin, TxPin) ;
 //char getChar ;    /* get char from BT device */
 //unsigned char str[50] = { 0 };    /* char array for string */
 
-typedef enum {False, True} Bool;    // 0 - false, 1 - true
+typedef enum {False, True} Bool ;    // 0 - false, 1 - true
+typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
+
+typedef struct PlantData{
+  PLANT_NUM plantNum ;    // plant number
+  char data[3] ; // humidity reading from plant via BT
+  int sumOfData ;    // sum of plant watering data from data array
+  int desiredVal ;   // desired water level for respective plants
+  Bool isWatered ;   // determine if plant has already been watered
+} tPlantData ;
+
+tPlantData plants[NUM_PLANTS] ; // number of plants to water
+
 
 /* Task scheduler runs in [us] */
 /* create task scheduler */
@@ -68,6 +85,7 @@ const unsigned long periodBTModule = 25000/1000 ; // 25 [ms]
 const unsigned long periodIfPressed = 50000/1000 ; // 50 [ms]
 const unsigned long periodServo = 20000/1000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
 const unsigned long periodOutputLED = 250000/1000 ; // 250 [ms]
+const unsigned long periodRPiData = 125000/1000 ;   // 125 [ms]
 
 unsigned char runningTasks[TASKS_NUM] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
@@ -84,6 +102,8 @@ enum SM_bluetooth{SM4_init, SM4_wait, SM4_disconnect, SM4_connect } ;
 int TickFct_HC05(int state) ;
 enum SM_ultraSonic{SM5_init, SM5_measure, SM5_filter} ;
 int TickFct_ultraSonic(int state) ;
+enum SM_dataFromRPi{SM6_init, SM6_wait, SM6_getData } ;
+int TickFct_dataFromRPi(int state) ;
 
 void TimerISR(void){    /* Scheduler code */
   unsigned char i ;     /* adjust according to number of tasks */
@@ -131,9 +151,9 @@ uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize)
 unsigned long measureDistance(unsigned long *arr) ;
 void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;   // smooths out data using simple moving average with value K (MA)
 void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;  // function caps array values to max distance
-int32_t calculateError(int desiredDist, int approxDist) ;  // function that calculates error for PID sys
-int32_t calculateInteg(void) ;  // function that calculates integral for PID sys
-int32_t calculateDeriv(void) ;  // function that calculates derivative for PID sys
+int32_t calculateError(int desiredVal, int approxVal) ;  // function that calculates error for PI sys
+int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
+void event(void) ;  // i2c event when getting data
 /* end function prototypes */
 
 
@@ -323,7 +343,7 @@ int TickFct_HC05(int state){
       break ;
   }
   
-  switch(state){  // state actions ;
+  switch(state){  // state actions
     case SM4_init:
       numBytes = BT.available() ;
       digitalWrite(ledPin, LOW) ;  /* turn off built-in LED if in state */
@@ -434,6 +454,28 @@ int TickFct_ultraSonic(int state){
 }
 
 /* State Machine 6 */
+int TickFct_dataFromRPi(int state){
+  switch(state){  // state transitions
+    case SM6_init:
+      state = SM6_wait ;
+      break ;
+    case SM6_wait:
+      state = SM6_wait ;
+      break ;
+    default:
+      state = SM6_init ;
+      break ;  
+  }
+  switch(state){  // state actions
+    case SM6_init:
+      break ;
+    case SM6_wait:
+      break ;
+    default:
+      break ;  
+  }
+  return state ;
+}
 
 
 /* end SM functions */
@@ -450,6 +492,12 @@ void setup() {
 
   pinMode(echoPin, INPUT) ;   /* echo pin */
   pinMode(trigPin, OUTPUT) ;  /* trig pin */
+
+  Wire.begin(0x08) ;    /* I2C address */
+  Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
+  Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
+  Wire.onReceive(event) ; /* call function when i2c gets data */
+  
   
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
@@ -466,6 +514,8 @@ void setup() {
   
   /* initialize scheduler */
   unsigned char i = 0 ;
+  unsigned char j = 0 ;
+  
   tasks[i].state = SM1_init ;
   tasks[i].period = periodIfPressed ;
   tasks[i].elapsedTime = tasks[i].period ;
@@ -498,6 +548,13 @@ void setup() {
   tasks[i].period = periodUltraSonic ;
   tasks[i].elapsedTime = tasks[i].period ;
   tasks[i].TickFct = &TickFct_ultraSonic ;
+  tasks[i].isRunning = False ;
+  i++ ;
+
+  tasks[i].state = SM6_init ;
+  tasks[i].period = periodRPiData ;
+  tasks[i].elapsedTime = tasks[i].period ;
+  tasks[i].TickFct = &TickFct_dataFromRPi ;
   tasks[i].isRunning = False ;
   i++ ;
 }
@@ -652,7 +709,6 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
         arr[i] = maxDist ;  
       }  
     }
-    
 }
 
 /* 
@@ -670,8 +726,36 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
   TODO:
     N/A
 */
-int32_t calculateError(int desiredDist, int approxDist){
+int32_t calculateError(int desiredVal, int approxVal){
   return (desiredDist - approxDist) ;  
+}
+
+/* 
+  Function name: calculateInteg
+  Purpose: Calculates integral value for PI controller
+  Details: Calculates integral value by using the calculated error and previous
+           integral value
+  
+  Parameters:
+        Name                Details
+        [In] errorVal       - error value from calculateError
+        [In] integralVal    - previous integral value
+        [Out] integVal      - sum of error and previous integral val
+  Return value:
+    integralVal
+  TODO:
+    N/A
+*/
+int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
+  return (integralVal + errorVal) ;
+}
+
+void event(void){
+  Serial.println("DEBUG STATEMENT: i2c event") ;
+  digitalWrite(ledPin, LOW) ;
+  delay(250) ;
+  digitalWrite(ledPin, HIGH) ;
+  delay(250) ;
 }
 
 /* end functions */
