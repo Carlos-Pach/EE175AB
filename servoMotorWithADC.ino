@@ -13,7 +13,9 @@
     Notes/TO DO: (1) Added priority to task struct
                  (2) Test PI controller code
                     (a) Wait for Vivian to finish her portions
-                 (3) create water gun function/SM
+                 (3) finish water gun function/SM
+                    (a) Finish start-up/calibration code, and water measuring functions
+                      (i) Look at github code line 55 to port into SM code
                  (4) Alter ultrasonic sensor code to cap distance if no value
                      is returned within a certain time 
 
@@ -24,6 +26,7 @@
 #include <Snooze.h>
 #include <Wire.h>
 #include <SoftwareSerial.h>
+#include <HX711_ADC.h>
 
 /* define macros */
 #define pinA0         0     // analog  (pin 14)
@@ -31,6 +34,8 @@
 #define TxPin         1     // pin 1 (digital 1)
 #define trigPin       2     // trigger pin (pin 2)
 #define echoPin       3     // echo pin (pin 3)
+#define HX711_DOUT    4     // HX711 dout pin (pin 4)
+#define HX711_SCK     5     // HX711 sck pin (pin 5)
 #define servoPin      9     // pin 9
 #define pin10_PWM     10    // pin 10 (PWM)
 #define ledPin        13    // pin 13 (built-in LED)
@@ -40,12 +45,13 @@
 
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
-#define TASKS_NUM     6     // number of tasks
+#define TASKS_NUM     7     // number of tasks
 #define BAUD_RATE     9600  // baud rate for serial
 #define BT_BAUD_RATE  9600  // baud rate for BT (HC-06 is 9600 by default)
 
 Servo myServo ;
 SoftwareSerial BT(RxPin, TxPin) ;
+HX711_ADC LoadCell(HX711_DOUT, HX711_SCK) ;
 
 //char getChar ;    /* get char from BT device */
 //unsigned char str[50] = { 0 };    /* char array for string */
@@ -86,6 +92,7 @@ const unsigned long periodIfPressed = 50000/1000 ; // 50 [ms]
 const unsigned long periodServo = 20000/1000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
 const unsigned long periodOutputLED = 250000/1000 ; // 250 [ms]
 const unsigned long periodRPiData = 125000/1000 ;   // 125 [ms]
+const unsigned long periodWaterGun = 75000/1000 ;   // 75 [ms]
 
 unsigned char runningTasks[TASKS_NUM] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
@@ -104,6 +111,8 @@ enum SM_ultraSonic{SM5_init, SM5_measure, SM5_filter} ;
 int TickFct_ultraSonic(int state) ;
 enum SM_dataFromRPi{SM6_init, SM6_wait, SM6_getData } ;
 int TickFct_dataFromRPi(int state) ;
+enum SM_waterGun{SM7_init, SM7_wait, SM7_activateGun, SM7_deactivateGun, SM7_measureWeight} ;
+int TickFct_waterGun(int state) ;
 
 void TimerISR(void){    /* Scheduler code */
   unsigned char i ;     /* adjust according to number of tasks */
@@ -137,6 +146,7 @@ const uint16_t arrPWM[ARR_SIZE] = {0, 170, 340, 510, 680, 850, 1023} ;
 /* declare global variables */
 Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
+Bool waterMeasured = True ; // 0 - not measured yet, 1 - already measured
 unsigned int valPWM_g ;
 /* values for PID system ... can be changed as testing continues */
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -154,6 +164,7 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;
 int32_t calculateError(int desiredVal, int approxVal) ;  // function that calculates error for PI sys
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
 void event(void) ;  // i2c event when getting data
+void calibrate(void) ;
 /* end function prototypes */
 
 
@@ -444,6 +455,11 @@ int TickFct_ultraSonic(int state){
       */
       // call cut off filter function
       cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
+      /*
+      for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+        Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+      }
+      */
       j = 0 ;
       break ;
     default:
@@ -477,6 +493,77 @@ int TickFct_dataFromRPi(int state){
   return state ;
 }
 
+/* State Machine 7 */
+int TickFct_waterGun(int state){
+  static unsigned char cnt = 0 ;
+  
+  switch(state){  // state transitions
+    case SM7_init:
+      state = SM7_wait ;
+      break ;
+    case SM7_wait:
+      if(turnOnGun == False){ // stay in wait state
+        state = SM7_wait ;  
+      } else if(!(turnOnGun == False)){ // go to activate gun state
+        state = SM7_activateGun ;  
+      }
+      break ;
+    case SM7_activateGun:
+      if(cnt < 5){  // stay in activate gun state
+        state = SM7_activateGun ;  
+      } else if(!(cnt < 5)){  // go to deactivateGun state
+        state = SM7_deactivateGun ;  
+      }
+      break ;
+    case SM7_deactivateGun:
+      if(cnt < 20){       // stay in deactive state
+        state = SM7_deactivateGun ;  
+      } else if(!(cnt < 20)){ // go to water measuring state
+        state = SM7_measureWeight ;  
+      }
+      break ;
+    case SM7_measureWeight:
+      if(waterMeasured == False){ // stay in measuring state
+        state = SM7_measureWeight ;  
+      } else{           // go to wait state
+        state = SM7_wait ;  
+      }
+      break ;
+    default:
+      state = SM7_init;
+      break ;
+  }
+  switch(state){  // state actions
+    case SM7_init:
+      waterMeasured = False ;
+      cnt = 0 ;
+      break ;
+    case SM7_wait:
+      Serial.println("DEBUG STATEMENT: SM7_wait") ;
+      cnt = 0 ;
+      break ;
+    case SM7_activateGun:
+      Serial.println("DEBUG STATEMENT: SM7_activateGun") ;
+      // function to squirt the water gun
+      
+      cnt++ ; // increase cnt
+      
+      break ;
+    case SM7_deactivateGun:
+      Serial.println("DEBUG STATEMENT: SM7_deactivateGun") ;
+      cnt++ ;
+      __asm("nop") ;
+    case SM7_measureWeight:
+      Serial.println("DEBUG STATEMENT: SM7_measureWeight") ;
+      // function to measure water tank capacity
+      waterMeasured = True ;
+      break ;
+    default:
+      break ;
+  }
+  return state ;  
+}
+
 
 /* end SM functions */
 
@@ -497,7 +584,23 @@ void setup() {
   Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
   Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
   Wire.onReceive(event) ; /* call function when i2c gets data */
+
+  /* set up HX711 */
+  LoadCell.begin() ;  /* load cell set up */
+  Bool tareHX711 = False ;  /* set to false if tare should not be conducted next step */
+  const unsigned int stabilizingTime = 2000 ; /* time to stabilize */
+  LoadCell.start(stabilizingTime, tareHX711) ;  /* check if correct pins were used */
   
+  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
+    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
+    while (1);
+  } else {  // set up pins were correct 
+    LoadCell.setCalFactor(1.0); // user set calibration value (float), initial value 1.0 may be used for this sketch
+    Serial.println("Startup is complete");
+  }
+  while (!LoadCell.update());
+  calibrate(); //start calibration procedure
+  /* finish HX711 */
   
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
@@ -555,6 +658,13 @@ void setup() {
   tasks[i].period = periodRPiData ;
   tasks[i].elapsedTime = tasks[i].period ;
   tasks[i].TickFct = &TickFct_dataFromRPi ;
+  tasks[i].isRunning = False ;
+  i++ ;
+
+  tasks[i].state = SM7_init ;
+  tasks[i].period = periodWaterGun ;
+  tasks[i].elapsedTime = tasks[i].period ;
+  tasks[i].TickFct = &TickFct_waterGun ;
   tasks[i].isRunning = False ;
   i++ ;
 }
@@ -630,6 +740,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 */
 unsigned long measureDistance(unsigned long *arr){
   const unsigned char distanceConst = 34 ;  /* (duration * 34 / 1000) / 2*/
+  const int maxTime = 3000 ;    /* max time for ultrasonic sensor to retrieve data past 100 [cm] */
 
   /* clear trig pin */
   digitalWrite(trigPin, LOW) ;
@@ -639,7 +750,7 @@ unsigned long measureDistance(unsigned long *arr){
   digitalWrite(trigPin, LOW) ;
   /* calculate distance */
   /* formula: duration * 0.034 / 2 */
-  return (distanceConst * pulseIn(echoPin, HIGH))/2000 ;  /* fixed point arithmetic used */
+  return (distanceConst * pulseIn(echoPin, HIGH, maxTime))/2000 ;  /* fixed point arithmetic used */
 }
 
 /* 
@@ -702,7 +813,7 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
 
     //Serial.println("DEBUG STATEMENT: cutOffFilter") ;
     for(i = 0; i < n; i++){ // begin loop
-      if(arr[i] > maxDist){ // determine if index's value exceeds max distance
+      if(arr[i] > maxDist || arr[i] == 0){ // determine if index's value exceeds max distance
         //Serial.print("DEBUG STATEMENT: value exceeds max distance ") ;
         //Serial.println(arr[i]) ;
         //delay(1000) ; // 1000 [ms]
@@ -727,7 +838,7 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
     N/A
 */
 int32_t calculateError(int desiredVal, int approxVal){
-  return (desiredDist - approxDist) ;  
+  return (desiredVal - approxVal) ;  
 }
 
 /* 
@@ -756,6 +867,44 @@ void event(void){
   delay(250) ;
   digitalWrite(ledPin, HIGH) ;
   delay(250) ;
+}
+
+/* 
+  Function name: calibrate
+  Purpose: Sets up weight sensor with known weight
+  Details: FINISH LATER
+
+  Parameters:
+      FINISH LATER
+
+  Return value: 
+    FINISH LATER
+
+  TODO:
+    FINISH LATER
+*/
+void calibrate(void){
+  // local vars
+  Bool resumeCal = False ;
+  float knownMass = 0 ;   // known mass of object ... may change?
+  
+  while(resumeCal == False){  // get status of tare
+    LoadCell.update() ;
+    if(LoadCell.getTareStatus()){
+      resumeCal = True ;  
+      Serial.println("DEBUG STATEMENT: tare complete") ;
+    }
+  }
+
+  resumeCal = False ;
+
+  while(resumeCal == False){
+    LoadCell.update() ;
+    // TODO: FINISH CODE (github: line 120)  
+  }
+
+  LoadCell.refreshDataSet() ;
+  float newCalibrationData = LoadCell.getNewCalibration(knownMass) ;
 }
 
 /* end functions */
