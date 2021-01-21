@@ -3,32 +3,55 @@
 #include <SoftwareSerial.h>
 
 SoftwareSerial mySerial(2,1); //rx | tx
-#define buttonPin 5
-#define led 8
-int buttonState = 0;
-int analogVal = 0;
-int flag = 0;
+//#define buttonPin 5
+//#define led 8
+//int buttonState = 0;
+
+#define pot A7
+int potVal = 0;
+int plantNum = 1;
+int desiredVal = 562;
+bool isWatered = true;
 
 void setup() {
   mySerial.begin(38400);
-  pinMode(buttonPin, INPUT);
-  pinMode(led, OUTPUT);
+  //pinMode(buttonPin, INPUT);
+  //pinMode(led, OUTPUT);
+  pinMode(pot, INPUT);
 }
 
 void loop() {
- // analogVal = analogRead(A7);
-  
-  buttonState = digitalRead(buttonPin);
+  potVal = analogRead(A7);
+  // pot reading between 750 and 0, if we get 75% = 562
+  if (potVal < desiredVal){
+    isWatered = false;
+  }
+  else{
+    isWatered = true; 
+  }
 
+  mySerial.print("plant number: ");
+  mySerial.println(plantNum);
+  mySerial.print("potentiometer Value: ");
+  mySerial.println(potVal);
+  delay(1500);
+  mySerial.print("desired water level: ");
+  mySerial.println(desiredVal);
+  mySerial.print("water state: ");
+  mySerial.println(isWatered);
+  delay(1500);
+
+
+  
+  //~~~~~~~~~ button test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  /*buttonState = digitalRead(buttonPin);
   if(buttonState == HIGH){
-    //mySerial.print('1');
     flag = 1;
     digitalWrite(led, HIGH);
   }
   else{
-    //mySerial.print('0');
     flag = 0;
     digitalWrite(led, LOW);
   }
-  mySerial.println(flag);
+  mySerial.println(flag);*/
 }
