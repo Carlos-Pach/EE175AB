@@ -30,18 +30,19 @@ void loop() {
     isWatered = true; 
   }
 
-  mySerial.print("plant number: ");
+  mySerial.print("plant #: ");
   mySerial.println(plantNum);
-  mySerial.print("potentiometer Value: ");
+  delay(2500);
+  mySerial.print("potentiometer %: ");
   mySerial.println(potVal);
-  delay(1500);
+  delay(2500);
   mySerial.print("desired water level: ");
   mySerial.println(desiredVal);
+  delay(2500);
   mySerial.print("water state: ");
   mySerial.println(isWatered);
-  delay(1500);
-
-
+  delay(2500);
+  
   
   //~~~~~~~~~ button test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   /*buttonState = digitalRead(buttonPin);
