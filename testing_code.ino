@@ -11,7 +11,7 @@ const int HX711_sck = 5; //mcu > HX711 sck pin
 
 //This variable will be used in the very last if statement to check if the water gun needs to turn on. When the car has stopped moving snd has reached it's destination, where the potted plant that needs watering
 // in front of the nozzle, then a value, 1, will be inputted into this variable. Once inputted, the water gun will begin spraying water.
-int test = 0;
+//int test = 0;
 //----------
 
 //HX711 constructor:
@@ -79,7 +79,7 @@ void loop() {
     if (inByte == 't') LoadCell.tareNoDelay();
   }
   // check if last tare operation is complete:
-  if (stopsig == 0 && test == 1) { // Both stopsig and test need to be the required value in order to activate. stopsig is used for water weight and test is used for car placement.
+  if (stopsig == 0) { // Both stopsig and test need to be the required value in order to activate. stopsig is used for water weight and test is used for car placement.
    digitalWrite(motorPin1, HIGH);
    delay(500);
    digitalWrite(motorPin1, LOW);
