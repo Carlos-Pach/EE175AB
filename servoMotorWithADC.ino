@@ -40,8 +40,8 @@
 #define pin10_PWM     10    // pin 10 (PWM)
 #define ledPin        13    // pin 13 (built-in LED)
 #define buttonPin     15    // pin 15 (analog 1) 
-#define i2cPinSCL     16    // pin 16 (SCL0)
-#define i2cPinSDA     17    // pin 17 (SDA0)
+#define i2cPinSCL     19    // pin 19 (SCL0)
+#define i2cPinSDA     18    // pin 18 (SDA0)
 
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
@@ -53,8 +53,6 @@ Servo myServo ;
 SoftwareSerial BT(RxPin, TxPin) ;
 HX711_ADC LoadCell(HX711_DOUT, HX711_SCK) ;
 
-//char getChar ;    /* get char from BT device */
-//unsigned char str[50] = { 0 };    /* char array for string */
 
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
@@ -369,9 +367,9 @@ int TickFct_HC05(int state){
       break ;
     case SM4_connect:
       digitalWrite(ledPin, LOW) ;
-      delay(500) ;
+      delay(20) ;
       digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
-      delay(500) ;
+      delay(20) ;
 
       i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
@@ -471,6 +469,7 @@ int TickFct_ultraSonic(int state){
 
 /* State Machine 6 */
 int TickFct_dataFromRPi(int state){
+  char dataRPi = 0 ;
   switch(state){  // state transitions
     case SM6_init:
       state = SM6_wait ;
@@ -486,6 +485,14 @@ int TickFct_dataFromRPi(int state){
     case SM6_init:
       break ;
     case SM6_wait:
+      Serial.println("DEBUG STATEMENT: SM6_wait") ;
+      Wire.requestFrom(0x8, 1) ;
+      while(Wire.available()){
+          dataRPi = Wire.read() ;
+      }
+      Serial.println("DEBUG STATEMENT: dataRPi = ") ;
+      Serial.print(dataRPi, DEC) ;
+      delayMicroseconds(10) ;
       break ;
     default:
       break ;  
@@ -502,10 +509,14 @@ int TickFct_waterGun(int state){
       state = SM7_wait ;
       break ;
     case SM7_wait:
-      if(turnOnGun == False){ // stay in wait state
-        state = SM7_wait ;  
-      } else if(!(turnOnGun == False)){ // go to activate gun state
-        state = SM7_activateGun ;  
+//      if(turnOnGun == False){ // stay in wait state
+//        state = SM7_wait ;  
+//      } else if(!(turnOnGun == False)){ // go to activate gun state
+//        state = SM7_activateGun ;  
+//      }
+      // use this statement until weight sensor is finished
+      if(1){
+        state = SM7_wait ;
       }
       break ;
     case SM7_activateGun:
@@ -580,27 +591,28 @@ void setup() {
   pinMode(echoPin, INPUT) ;   /* echo pin */
   pinMode(trigPin, OUTPUT) ;  /* trig pin */
 
-  Wire.begin(0x08) ;    /* I2C address */
+  Wire.begin(0x8) ;    /* I2C address */
   Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
   Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
   Wire.onReceive(event) ; /* call function when i2c gets data */
 
-  /* set up HX711 */
-  LoadCell.begin() ;  /* load cell set up */
-  Bool tareHX711 = False ;  /* set to false if tare should not be conducted next step */
-  const unsigned int stabilizingTime = 2000 ; /* time to stabilize */
-  LoadCell.start(stabilizingTime, tareHX711) ;  /* check if correct pins were used */
-  
-  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
-    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
-    while (1);
-  } else {  // set up pins were correct 
-    LoadCell.setCalFactor(1.0); // user set calibration value (float), initial value 1.0 may be used for this sketch
-    Serial.println("Startup is complete");
-  }
-  while (!LoadCell.update());
-  calibrate(); //start calibration procedure
-  /* finish HX711 */
+  // comment out until weight sensor is finished
+//  /* set up HX711 */
+//  LoadCell.begin() ;  /* load cell set up */
+//  Bool tareHX711 = False ;  /* set to false if tare should not be conducted next step */
+//  const unsigned int stabilizingTime = 2000 ; /* time to stabilize */
+//  LoadCell.start(stabilizingTime, tareHX711) ;  /* check if correct pins were used */
+//  
+//  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
+//    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
+//    while (1);
+//  } else {  // set up pins were correct 
+//    LoadCell.setCalFactor(1.0); // user set calibration value (float), initial value 1.0 may be used for this sketch
+//    Serial.println("Startup is complete");
+//  }
+//  while (!LoadCell.update());
+//  calibrate(); //start calibration procedure
+//  /* finish HX711 */
   
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
@@ -667,6 +679,23 @@ void setup() {
   tasks[i].TickFct = &TickFct_waterGun ;
   tasks[i].isRunning = False ;
   i++ ;
+
+  // initialize plants
+  plants[0].plantNum = Plant_0 ;
+  for(j = 0; j < 3; j++){ plants[0].data[j] = 0 ; }
+  plants[0].sumOfData = plants[0].data[0] + plants[0].data[1] + plants[0].data[2] ;
+  plants[0].isWatered = True ;
+
+  plants[1].plantNum = Plant_1 ;
+  for(j = 0; j < 3; j++){ plants[1].data[j] = 0 ; }
+  plants[1].sumOfData = plants[1].data[0] + plants[1].data[1] + plants[1].data[2] ;
+  plants[1].isWatered = True ;
+
+  plants[2].plantNum = Plant_2 ;
+  for(j = 0; j < 3; j++){ plants[2].data[j] = 0 ; }
+  plants[2].sumOfData = plants[2].data[0] + plants[2].data[1] + plants[2].data[2] ;
+  plants[2].isWatered = True ;
+  
 }
 
 void loop() {
@@ -740,7 +769,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 */
 unsigned long measureDistance(unsigned long *arr){
   const unsigned char distanceConst = 34 ;  /* (duration * 34 / 1000) / 2*/
-  const int maxTime = 3000 ;    /* max time for ultrasonic sensor to retrieve data past 100 [cm] */
+  const int maxTime = 3100 ;    /* max time for ultrasonic sensor to retrieve data past 100 [cm] */
 
   /* clear trig pin */
   digitalWrite(trigPin, LOW) ;
