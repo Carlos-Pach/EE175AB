@@ -4,6 +4,7 @@
 
 SoftwareSerial mySerial(0,1); //rx | tx
 //#define ledPin 15
+#define NUM_PLANTS 3  //number of plants to water
 int state = 0;  // var to read bluetooth
 int arrayIndex = 0; // hold index for charArray
 bool flag = 0;  // flag to indicate when to store into charArray
@@ -13,10 +14,24 @@ char storeVal[5];  // store digits from charArray to save into variables
 int j = 0;  // var to use as index
 
 // plant information
-char potVal[5];
+char data[4];
 char plantNum;
 char desiredVal[5];
 char isWatered;
+
+/*
+typedef enum {False, True} Bool ;    // 0 - false, 1 - true
+typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
+
+typedef struct PlantData{
+  PLANT_NUM plantNum ;    // plant number
+  char data[4] ; // humidity reading from plant via BT
+  int sumOfData ;    // sum of plant watering data from data array
+  int desiredVal ;   // desired water level for respective plants
+  Bool isWatered ;   // determine if plant has already been watered
+} tPlantData ;
+
+tPlantData plants[NUM_PLANTS] ; // number of plants to water*/
 
 void setup() {
   mySerial.begin(38400);
@@ -52,7 +67,7 @@ void loop() {
       }
       if (charArray[i] == 37){
         for (int i=0; i<5; i++){
-          potVal[i] = storeVal[i];
+          data[i] = storeVal[i];
         }
       }
       if ((charArray[i] == 108) && (charArray[i+1] == 58)){
@@ -65,18 +80,20 @@ void loop() {
       }
     }
   }
-    Serial.println(charArray);
-    Serial.print("val: ");
-    Serial.println(storeVal);
+
     Serial.print("plant number: ");
+    //mySerial.write(plantNum);
     Serial.println(plantNum);
     Serial.print("potentiometer %: ");
-    Serial.println(potVal);
+    //mySerial.write(data);
+    Serial.println(data);
     Serial.print("desired water level: ");
+    //mySerial.write(desiredVal);
     Serial.println(desiredVal);
     Serial.print("water state: ");
+    //mySerial.write(isWatered);
     Serial.println(isWatered);
-    delay(50);
+    delay(10);
 
 
 

@@ -30,18 +30,18 @@ void loop() {
     isWatered = true; 
   }
 
-  mySerial.print("plant #: ");
+  mySerial.print("#: ");
   mySerial.println(plantNum);
-  delay(2500);
-  mySerial.print("potentiometer %: ");
+  delay(70);
+  mySerial.print("%: ");
   mySerial.println(potVal);
-  delay(2500);
-  mySerial.print("desired water level: ");
+  delay(70);
+  mySerial.print("l: ");
   mySerial.println(desiredVal);
-  delay(2500);
-  mySerial.print("water state: ");
+  delay(70);
+  mySerial.print("e: ");
   mySerial.println(isWatered);
-  delay(2500);
+  delay(70);
   
   
   //~~~~~~~~~ button test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
