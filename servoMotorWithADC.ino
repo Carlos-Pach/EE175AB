@@ -140,11 +140,47 @@ void TimerISR(void){    /* Scheduler code */
 
 /* Using uint16_t because max value of unsigned char is 255 and 10-bit PWM only goes up to 1023 */
 const uint16_t arrPWM[ARR_SIZE] = {0, 170, 340, 510, 680, 850, 1023} ;
+// Using uint16_t to decode compressed plant humidity value
+const uint16_t plantDecoder[] = {   0x0,   // 0
+                                    0x1,   // 32
+                                    0x2,   // 64
+                                    0x3,   // 96
+                                    0x4,   // 128
+                                    0x5,   // 160
+                                    0x6,   // 192
+                                    0x7,   // 224
+                                    0x8,   // 256
+                                    0x9,   // 288
+                                    0x16,   // 320
+                                    0x17,   // 352
+                                    0x18,   // 384
+                                    0x19,   // 416
+                                    0x20,   // 448
+                                    0x21,   // 480
+                                    0x22,   // 512
+                                    0x23,   // 544
+                                    0x24,   // 576
+                                    0x25,   // 608
+                                    0x32,   // 640
+                                    0x33,   // 672
+                                    0x34,   // 704
+                                    0x35,   // 736
+                                    0x36,   // 768
+                                    0x37,   // 800
+                                    0x38,   // 832
+                                    0x39,   // 864
+                                    0x40,   // 896
+                                    0x41,   // 928
+                                    0x48,   // 960
+                                    0x49,   // 992
+                                    0x50   // 1023
+                                } ;
 
 /* declare global variables */
 Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured = True ; // 0 - not measured yet, 1 - already measured
+Bool stopSig = True ;    // 0 - 
 unsigned int valPWM_g ;
 /* values for PID system ... can be changed as testing continues */
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -307,6 +343,7 @@ int TickFct_servos(int state){
 /* State Machine 4 */
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
+  char numOfPlant ;
   char arr[] = {} ;  // create empty array buffer
   
   switch(state){  // state transitions
@@ -367,21 +404,49 @@ int TickFct_HC05(int state){
       break ;
     case SM4_connect:
       digitalWrite(ledPin, LOW) ;
-      delay(20) ;
+      delay(100) ;
       digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
-      delay(20) ;
+      delay(100) ;
 
-      i = 0 ;
+      //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
       /* get string from BT buffer */
-      while(numBytes > 0){  // count chars from buffer
-          arr[i] = BT.read() ;
-          Serial.print(arr[i]) ;  // debug statement, print to serial
-          BT.print(arr[i]) ;      // debug statement, print to BT terminal
-          i++ ;
-          numBytes-- ;
+//      while(numBytes > 0){  // count chars from buffer
+//          arr[i] = BT.read() ;
+//          Serial.print(arr[i]) ;  // debug statement, print to serial
+//          BT.print(arr[i]) ;      // debug statement, print to BT terminal
+//          i++ ;
+//          numBytes-- ;
+//      }
+      // get first byte (plant number)
+      while(numBytes > 0){
+        numOfPlant = BT.read() ;
+        Serial.print("DEBUG STATEMENT: numOfPlant = ") ; Serial.println(numOfPlant, HEX) ;
+        numBytes-- ;
+      } delay(200) ;  // delay so plant controller can catch up
+
+      Serial.print("DEBUG STATEMENT: data = ");
+      for(i = 0; i < 4; i++){   // get plant data[0:3]
+        if(BT.available()){
+          numBytes = BT.available() ;
+          while(numBytes > 0){
+            plants[numOfPlant].data[i] = BT.read() ;
+            Serial.print(plants[numOfPlant].data[i], HEX); Serial.print(" ") ;
+            numBytes-- ;
+          }
+        }
+        delay(200) ;  // delay so plant controller can catch up
       }
-      delay(20) ;   // 2000 [ms] --> 20 [ms]
+
+      if(BT.available()){
+        numBytes = BT.available() ;
+        while(numBytes > 0){
+          plants[numOfPlant].isWatered = BT.read() ;
+          Serial.println("\nDEBUG STATEMENT: isWatered = ") ; Serial.println(plants[numOfPlant].isWatered, HEX) ;
+          numBytes-- ;  
+        }  
+      }
+      delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
       /* print BT buffer to serial monitor */
       /*
       Serial.print("DEBUG STATEMENT: sizeof arrBT "); Serial.println(sizeof(arr)/sizeof(arr[0])) ;  // outputs 0
@@ -600,6 +665,8 @@ void setup() {
 //  /* set up HX711 */
 //  LoadCell.begin() ;  /* load cell set up */
 //  Bool tareHX711 = False ;  /* set to false if tare should not be conducted next step */
+//  float calibrationValue ;  // calibration value
+//  calibrationValue = 696.0 ;  // uncomment if calibrationValue is set in file
 //  const unsigned int stabilizingTime = 2000 ; /* time to stabilize */
 //  LoadCell.start(stabilizingTime, tareHX711) ;  /* check if correct pins were used */
 //  
@@ -607,7 +674,7 @@ void setup() {
 //    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
 //    while (1);
 //  } else {  // set up pins were correct 
-//    LoadCell.setCalFactor(1.0); // user set calibration value (float), initial value 1.0 may be used for this sketch
+//    LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
 //    Serial.println("Startup is complete");
 //  }
 //  while (!LoadCell.update());
@@ -682,18 +749,21 @@ void setup() {
 
   // initialize plants
   plants[0].plantNum = Plant_0 ;
-  for(j = 0; j < 3; j++){ plants[0].data[j] = 0 ; }
+  for(j = 0; j < 3; j++){ plants[0].data[j] = 0 ; } // fill array with 0
   plants[0].sumOfData = plants[0].data[0] + plants[0].data[1] + plants[0].data[2] ;
+  plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
 
   plants[1].plantNum = Plant_1 ;
-  for(j = 0; j < 3; j++){ plants[1].data[j] = 0 ; }
+  for(j = 0; j < 3; j++){ plants[1].data[j] = 0 ; } // fill array with 0
   plants[1].sumOfData = plants[1].data[0] + plants[1].data[1] + plants[1].data[2] ;
+  plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
 
   plants[2].plantNum = Plant_2 ;
-  for(j = 0; j < 3; j++){ plants[2].data[j] = 0 ; }
+  for(j = 0; j < 3; j++){ plants[2].data[j] = 0 ; } // fill array with 0
   plants[2].sumOfData = plants[2].data[0] + plants[2].data[1] + plants[2].data[2] ;
+  plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
   
 }
@@ -914,26 +984,48 @@ void event(void){
 */
 void calibrate(void){
   // local vars
-  Bool resumeCal = False ;
+  static Bool resumeCal = False ;
+  static long t ; // time in [ms]
   float knownMass = 0 ;   // known mass of object ... may change?
+  const int intervalTime = 0 ;
+  static const float minimumMass ;  // minimum weight for water tank
   
-  while(resumeCal == False){  // get status of tare
-    LoadCell.update() ;
-    if(LoadCell.getTareStatus()){
-      resumeCal = True ;  
-      Serial.println("DEBUG STATEMENT: tare complete") ;
+//  while(resumeCal == False){  // get status of tare
+//    LoadCell.update() ;
+//    if(LoadCell.getTareStatus()){
+//      resumeCal = True ;  
+//      Serial.println("DEBUG STATEMENT: tare complete") ;
+//    }
+//  }
+//
+//  resumeCal = False ;
+//
+//  while(resumeCal == False){
+//    LoadCell.update() ;
+//    // TODO: FINISH CODE (github: line 120)  
+//  }
+//
+//  LoadCell.refreshDataSet() ;
+//  float newCalibrationData = LoadCell.getNewCalibration(knownMass) ;
+
+  if(LoadCell.update()){
+    resumeCal = True ;  
+  }
+  if(resumeCal == True){
+    if(millis() + t > intervalTime){
+      float i = LoadCell.getData() ;  // var used to print to serial monitor
+      Serial.print("DEBUG STATEMENT: weight = "); Serial.println(i) ; // comment out when no longer needed
+      resumeCal = True ;
+      t = millis() ;
+      if(i > minimumMass){  // measured mass is above minimum water required
+        stopSig = True ;    // do not send stop signal 
+      } else{
+        stopSig = False ;  
+      }
     }
   }
 
-  resumeCal = False ;
-
-  while(resumeCal == False){
-    LoadCell.update() ;
-    // TODO: FINISH CODE (github: line 120)  
-  }
-
-  LoadCell.refreshDataSet() ;
-  float newCalibrationData = LoadCell.getNewCalibration(knownMass) ;
+  // more to finish (?)
 }
 
 /* end functions */
