@@ -175,6 +175,10 @@ const uint16_t plantDecoder[] = {   0x0,   // 0
                                     0x49,   // 992
                                     0x50   // 1023
                                 } ;
+const uint16_t plantVals[] = {  0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384,
+                                416, 448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800,
+                                832, 864, 896, 928, 960, 992, 1023
+                              } ;
 
 /* declare global variables */
 Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
