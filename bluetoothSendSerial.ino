@@ -9,9 +9,10 @@ SoftwareSerial mySerial(2,1); //rx | tx
 
 #define pot A7
 int potVal = 0;
-int plantNum = 1;
+int plantNum = 0x01;
 int desiredVal = 562;
 bool isWatered = true;
+unsigned char myVal = 0x00;
 
 void setup() {
   mySerial.begin(38400);
@@ -24,24 +25,17 @@ void loop() {
   potVal = analogRead(A7);
   // pot reading between 750 and 0, if we get 75% = 562
   if (potVal < desiredVal){
-    isWatered = false;
+    isWatered = bitWrite(myVal,2,0);
   }
   else{
-    isWatered = true; 
+    isWatered = bitWrite(myVal,2,1);
   }
-
-  mySerial.print("#: ");
-  mySerial.println(plantNum);
-  delay(70);
-  mySerial.print("%: ");
+  
+  myVal = myVal | plantNum;
+  myVal = myVal | potVal/32 << 3;
   mySerial.println(potVal);
-  delay(70);
-  mySerial.print("l: ");
-  mySerial.println(desiredVal);
-  delay(70);
-  mySerial.print("e: ");
-  mySerial.println(isWatered);
-  delay(70);
+  mySerial.println(myVal, HEX);
+  myVal = 0x00;
   
   
   //~~~~~~~~~ button test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
