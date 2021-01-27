@@ -57,10 +57,13 @@ HX711_ADC LoadCell(HX711_DOUT, HX711_SCK) ;
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 
+// change data from char --> uint16_t
+// remove sumOfData ... no longer needed
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
-  char data[3] ; // humidity reading from plant via BT
-  int sumOfData ;    // sum of plant watering data from data array
+  //char data[3] ; // humidity reading from plant via BT
+  uint16_t data ;   // humidity reading from plant via BT
+  //int sumOfData ;    // sum of plant watering data from data array
   int desiredVal ;   // desired water level for respective plants
   Bool isWatered ;   // determine if plant has already been watered
 } tPlantData ;
@@ -141,41 +144,40 @@ void TimerISR(void){    /* Scheduler code */
 /* Using uint16_t because max value of unsigned char is 255 and 10-bit PWM only goes up to 1023 */
 const uint16_t arrPWM[ARR_SIZE] = {0, 170, 340, 510, 680, 850, 1023} ;
 // Using uint16_t to decode compressed plant humidity value
-const uint16_t plantDecoder[] = {   0x0,   // 0
-                                    0x1,   // 32
-                                    0x2,   // 64
-                                    0x3,   // 96
-                                    0x4,   // 128
-                                    0x5,   // 160
-                                    0x6,   // 192
-                                    0x7,   // 224
-                                    0x8,   // 256
-                                    0x9,   // 288
-                                    0x16,   // 320
-                                    0x17,   // 352
-                                    0x18,   // 384
-                                    0x19,   // 416
-                                    0x20,   // 448
-                                    0x21,   // 480
-                                    0x22,   // 512
-                                    0x23,   // 544
-                                    0x24,   // 576
-                                    0x25,   // 608
-                                    0x32,   // 640
-                                    0x33,   // 672
-                                    0x34,   // 704
-                                    0x35,   // 736
-                                    0x36,   // 768
-                                    0x37,   // 800
-                                    0x38,   // 832
-                                    0x39,   // 864
-                                    0x40,   // 896
-                                    0x41,   // 928
-                                    0x48,   // 960
-                                    0x49,   // 992
-                                    0x50   // 1023
+const uint16_t plantDecoder[] = {    0x0,   // 0
+                                     0x1,   // 1
+                                     0x2,   // 2
+                                     0x3,   // 3
+                                     0x4,   // 4
+                                     0x5,   // 5
+                                     0x6,   // 6
+                                     0x7,   // 7
+                                     0x8,   // 8
+                                     0x9,   // 9
+                                     0xA,   // 10
+                                     0xB,   // 11
+                                     0xC,   // 12
+                                     0xD,   // 13
+                                     0xE,   // 14
+                                     0xF,   // 15
+                                     0x10,   // 16
+                                     0x11,   // 17
+                                     0x12,   // 18
+                                     0x13,   // 19
+                                     0x14,   // 20
+                                     0x15,   // 21
+                                     0x16,   // 22
+                                     0x17,   // 23
+                                     0x18,   // 24
+                                     0x19,   // 25
+                                     0x1A,   // 26
+                                     0x1B,   // 27
+                                     0x1C,   // 28
+                                     0x1D,   // 29
+                                     0x1E,   // 30
+                                     0x1F,   // 31
                                 } ;
-const uint16_t plantVals[] = {  0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384,
+const uint16_t plantVals[] = {  32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384,
                                 416, 448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800,
                                 832, 864, 896, 928, 960, 992, 1023
                               } ;
@@ -203,6 +205,7 @@ int32_t calculateError(int desiredVal, int approxVal) ;  // function that calcul
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
 void event(void) ;  // i2c event when getting data
 void calibrate(void) ;
+uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], unsigned char n, unsigned char decodeChar) ;  // returns decoded plant val (in dec)
 /* end function prototypes */
 
 
@@ -348,7 +351,12 @@ int TickFct_servos(int state){
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
   char numOfPlant ;
+  static unsigned char plantDecodeID = 0x00 ;
   char arr[] = {} ;  // create empty array buffer
+  unsigned char chRecv = 0x00 ;
+  const static unsigned char n = sizeof(plantDecoder)/sizeof(plantDecoder[0]) ;
+
+  const unsigned char testCase = 0x00 ; // basic unit test
   
   switch(state){  // state transitions
     case SM4_init:
@@ -415,41 +423,60 @@ int TickFct_HC05(int state){
       //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
       /* get string from BT buffer */
-//      while(numBytes > 0){  // count chars from buffer
-//          arr[i] = BT.read() ;
-//          Serial.print(arr[i]) ;  // debug statement, print to serial
-//          BT.print(arr[i]) ;      // debug statement, print to BT terminal
-//          i++ ;
-//          numBytes-- ;
-//      }
+      #if 0
+        while(numBytes > 0){  // count chars from buffer
+            arr[i] = BT.read() ;
+            Serial.print(arr[i]) ;  // debug statement, print to serial
+            BT.print(arr[i]) ;      // debug statement, print to BT terminal
+            i++ ;
+            numBytes-- ;
+        }
+      #endif
+      
       // get first byte (plant number)
       while(numBytes > 0){
-        numOfPlant = BT.read() ;
-        Serial.print("DEBUG STATEMENT: numOfPlant = ") ; Serial.println(numOfPlant, HEX) ;
-        numBytes-- ;
-      } delay(200) ;  // delay so plant controller can catch up
-
-      Serial.print("DEBUG STATEMENT: data = ");
-      for(i = 0; i < 4; i++){   // get plant data[0:3]
-        if(BT.available()){
-          numBytes = BT.available() ;
-          while(numBytes > 0){
-            plants[numOfPlant].data[i] = BT.read() ;
-            Serial.print(plants[numOfPlant].data[i], HEX); Serial.print(" ") ;
-            numBytes-- ;
-          }
+        chRecv = BT.read() ;  // read from buffer
+        numBytes-- ;          // decrease count by 1
+        
+        plantDecodeID = testCase & 0x03 ;  // find first 2 bits for plant ID
+        //Serial.print("chRecv = "); Serial.println(chRecv, HEX) ;
+        
+        switch(plantDecodeID){  // enter plantID info
+          case 0x00:
+            plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
+            plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
+            
+            //Serial.println("DEBUG STATEMENT: Plant_0") ;
+            //Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
+            //Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
+            break ;
+          case 0x01:
+            plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
+            plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
+            
+            //Serial.println("DEBUG STATEMENT: Plant_1") ;
+            //Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
+            //Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
+            break ;
+          case 0x02:
+            plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
+            plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
+            
+            //Serial.println("DEBUG STATEMENT: Plant_2") ;
+            //Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
+            //Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
+            break ;
+          default:
+            Serial.println("DEBUG STATEMENT: PLANT_ID NOT FOUND") ;
+            digitalWrite(ledPin, LOW) ;
+            delay(100) ;
+            digitalWrite(ledPin, HIGH) ; // light up built-in LED if in default
+            delay(100) ;
+            break ;
         }
-        delay(200) ;  // delay so plant controller can catch up
+        delay(3000) ;
       }
-
-      if(BT.available()){
-        numBytes = BT.available() ;
-        while(numBytes > 0){
-          plants[numOfPlant].isWatered = BT.read() ;
-          Serial.println("\nDEBUG STATEMENT: isWatered = ") ; Serial.println(plants[numOfPlant].isWatered, HEX) ;
-          numBytes-- ;  
-        }  
-      }
+      Serial.print("Numbytes: "); Serial.println(numBytes) ;
       delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
       /* print BT buffer to serial monitor */
       /*
@@ -514,19 +541,23 @@ int TickFct_ultraSonic(int state){
       Serial.println("DEBUG STATEMENT: SM5_filter") ;
       // call EMA filter function
       filterEMA(distanceArr, distanceArrEMA, K_MA) ;
-      /*
-      Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
-      for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
-        Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
-      }
-      */
+      
+      #if 0
+        Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
+        for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+          Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+        }
+      #endif
+      
       // call cut off filter function
       cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
-      /*
-      for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
-        Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
-      }
-      */
+      // print data array to serial monitor
+      #if 0     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
+        for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+          Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+        }
+      #endif
+      
       j = 0 ;
       break ;
     default:
@@ -700,7 +731,6 @@ void setup() {
   
   /* initialize scheduler */
   unsigned char i = 0 ;
-  unsigned char j = 0 ;
   
   tasks[i].state = SM1_init ;
   tasks[i].period = periodIfPressed ;
@@ -753,20 +783,17 @@ void setup() {
 
   // initialize plants
   plants[0].plantNum = Plant_0 ;
-  for(j = 0; j < 3; j++){ plants[0].data[j] = 0 ; } // fill array with 0
-  plants[0].sumOfData = plants[0].data[0] + plants[0].data[1] + plants[0].data[2] ;
+  plants[0].data = 0 ;
   plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
 
   plants[1].plantNum = Plant_1 ;
-  for(j = 0; j < 3; j++){ plants[1].data[j] = 0 ; } // fill array with 0
-  plants[1].sumOfData = plants[1].data[0] + plants[1].data[1] + plants[1].data[2] ;
+  plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
 
   plants[2].plantNum = Plant_2 ;
-  for(j = 0; j < 3; j++){ plants[2].data[j] = 0 ; } // fill array with 0
-  plants[2].sumOfData = plants[2].data[0] + plants[2].data[1] + plants[2].data[2] ;
+  plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
   
@@ -832,6 +859,36 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 }
 
 /* 
+  Function name: decodePlantVal
+  Purpose: Decodes the plant's moisture sensor data
+  Details: Uses 2 arrays to find the encoded data value from the plant.
+           Returns the decoded value as a decimal.
+  Parameters:
+        Name                        Details
+        [In] arrCompressedData      - encoded array
+        [In] arrPlantVal            - decoded lant value
+        [In] n                      - size of both arrays
+        [In] decodeChar             - value to decode into decimal
+  Return value:
+        arrPlantVal[index]
+*/
+uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], unsigned char n, unsigned char decodeChar){
+  unsigned int i ;
+  Serial.println("DEBUG STATEMENT: decodePlantVal") ;
+  delay(2000) ;
+  Serial.print("decodeChar = "); Serial.println(decodeChar, HEX);
+  
+  for(i = 0; i < n; i++){
+    if(decodeChar == arrCompressedData[i]){
+      Serial.print("DEBUG STATEMENT: arrPlantVal = "); Serial.println(arrPlantVal[i]) ;
+      return arrPlantVal[i] ;
+    }  
+  }
+  Serial.println("DEBUG STATEMENT: value not found (decodePlantVal)") ;
+  return 0 ;
+}
+
+/* 
   Function name: measureDistance
   Purpose: measures distance from HC-SR04 ultrasonic sensor
   Details: Calculates distance between an object and the 
@@ -853,7 +910,7 @@ unsigned long measureDistance(unsigned long *arr){
   digitalWrite(trigPin, LOW) ;
   /* calculate distance */
   /* formula: duration * 0.034 / 2 */
-  return (distanceConst * pulseIn(echoPin, HIGH, maxTime))/2000 ;  /* fixed point arithmetic used */
+  return (distanceConst * pulseIn(echoPin, HIGH, maxTime*2))/2000 ;  /* fixed point arithmetic used */
 }
 
 /* 
