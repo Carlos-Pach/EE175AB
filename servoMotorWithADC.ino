@@ -16,8 +16,8 @@
                  (3) finish water gun function/SM
                     (a) Finish start-up/calibration code, and water measuring functions
                       (i) Look at github code line 55 to port into SM code
-                 (4) Alter ultrasonic sensor code to cap distance if no value
-                     is returned within a certain time 
+                 (4) Create new filter for ultra sonic sensor to return 1 single value
+                    (a) look at HR monitor algo code(?) 
 
 */
 
@@ -356,7 +356,7 @@ int TickFct_HC05(int state){
   unsigned char chRecv = 0x00 ;
   const static unsigned char n = sizeof(plantDecoder)/sizeof(plantDecoder[0]) ;
 
-  const unsigned char testCase = 0x00 ; // basic unit test
+  //const unsigned char testCase = 0x00 ; // basic unit test
   
   switch(state){  // state transitions
     case SM4_init:
@@ -438,33 +438,33 @@ int TickFct_HC05(int state){
         chRecv = BT.read() ;  // read from buffer
         numBytes-- ;          // decrease count by 1
         
-        plantDecodeID = testCase & 0x03 ;  // find first 2 bits for plant ID
-        //Serial.print("chRecv = "); Serial.println(chRecv, HEX) ;
+        plantDecodeID = chRecv & 0x03 ;  // find first 2 bits for plant ID
+        Serial.print("chRecv = "); Serial.println(chRecv, HEX) ;
         
         switch(plantDecodeID){  // enter plantID info
           case 0x00:
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            //Serial.println("DEBUG STATEMENT: Plant_0") ;
-            //Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
-            //Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
+            Serial.println("DEBUG STATEMENT: Plant_0") ;
+            Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
+            Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
             break ;
           case 0x01:
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            //Serial.println("DEBUG STATEMENT: Plant_1") ;
-            //Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
-            //Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
+            Serial.println("DEBUG STATEMENT: Plant_1") ;
+            Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
+            Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
             break ;
           case 0x02:
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            //Serial.println("DEBUG STATEMENT: Plant_2") ;
-            //Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
-            //Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
+            Serial.println("DEBUG STATEMENT: Plant_2") ;
+            Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
+            Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
             break ;
           default:
             Serial.println("DEBUG STATEMENT: PLANT_ID NOT FOUND") ;
@@ -876,7 +876,7 @@ uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], un
   unsigned int i ;
   Serial.println("DEBUG STATEMENT: decodePlantVal") ;
   delay(2000) ;
-  Serial.print("decodeChar = "); Serial.println(decodeChar, HEX);
+  Serial.print("decodeChar(HEX) = "); Serial.println(decodeChar, HEX);
   
   for(i = 0; i < n; i++){
     if(decodeChar == arrCompressedData[i]){
