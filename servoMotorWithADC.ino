@@ -705,7 +705,7 @@ void setup() {
 //  EEPROM.get(calVal_eepromAdress, calibrationValue); // uncomment this if you want to fetch the calibration value from eeprom
 
 //  long stabilizingtime = 2000; // preciscion right after power-up can be improved by adding a few seconds of stabilizing time
-//  boolean tareHX711 = true; //set this to false if you don't want tare to be performed in the next step
+//  Bool tareHX711 = True; //set this to false if you don't want tare to be performed in the next step
 //  LoadCell.start(stabilizingtime, tareHX711);
 //  LoadCell.setCalFactor(calibrationValue); // set calibration value (float)
 //  /* finish HX711 */
