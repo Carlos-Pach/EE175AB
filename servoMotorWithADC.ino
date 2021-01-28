@@ -46,7 +46,7 @@
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
 #define TASKS_NUM     7     // number of tasks
-#define BAUD_RATE     9600  // baud rate for serial
+#define BAUD_RATE     38400  // baud rate for serial
 #define BT_BAUD_RATE  9600  // baud rate for BT (HC-06 is 9600 by default)
 
 Servo myServo ;
@@ -65,6 +65,7 @@ typedef struct PlantData{
   uint16_t data ;   // humidity reading from plant via BT
   //int sumOfData ;    // sum of plant watering data from data array
   int desiredVal ;   // desired water level for respective plants
+  char priority ;   // determines priority of plants
   Bool isWatered ;   // determine if plant has already been watered
 } tPlantData ;
 
@@ -474,7 +475,7 @@ int TickFct_HC05(int state){
             delay(100) ;
             break ;
         }
-        delay(3000) ;
+        delay(1000) ;
       }
       Serial.print("Numbytes: "); Serial.println(numBytes) ;
       delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
@@ -786,16 +787,19 @@ void setup() {
   plants[0].data = 0 ;
   plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
+  plants[0].priority = 0 ;
 
   plants[1].plantNum = Plant_1 ;
   plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
+  plants[1].priority = 0 ;
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
+  plants[2].priority = 0 ;
   
 }
 
