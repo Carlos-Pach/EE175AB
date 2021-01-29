@@ -35,9 +35,9 @@ while numb == 1:
     
     ledstate = input(">>>>  ")
     
-    if ledstate == "1":
+    if ledstate == "1": #Haven't changed yet, but this should output 32 in binary.
         bus.write_byte(addr, 0x20)
-    elif ledstate == "0":
+    elif ledstate == "0": #Output 0 in binary
         bus.write_byte(addr, 0x0)
     else:
         numb = 0
