@@ -42,7 +42,8 @@ def find_marker(image):
 def distance_to_camera(knownWidth, focalLength, perWidth):
 	# compute and return the distance from the maker to the camera
 	return (knownWidth * focalLength) / perWidth
-    
+
+cap = cv2.VideoCapture(0)
 # initialize the known distance from the camera to the object, which
 # in this case is 24 inches
 KNOWN_DISTANCE = 24.0
@@ -52,10 +53,10 @@ KNOWN_WIDTH = 11.0
 # load the furst image that contains an object that is KNOWN TO BE 2 feet
 # from our camera, then find the paper marker in the image, and initialize
 # the focal length
-image = cv2.imread("images/2ft.png")
+ret, image = cap.read()
 marker = find_marker(image)
 focalLength = (marker[1][0] * KNOWN_DISTANCE) / KNOWN_WIDTH
-cap = cv2.VideoCapture(0)
+
 # loop over the images
 while(True):
 	# load the image, find the marker in the image, then compute the
@@ -71,6 +72,7 @@ while(True):
 		(image.shape[1] - 200, image.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX,
 		2.0, (0, 255, 0), 3)
 	cv2.imshow("image", image)
-	cv2.waitKey(0)
+	if cv2.waitKey(1) & 0xFF == ord('q'):
+		break
 cap.release()
 cv2.destroyAllWindows()
