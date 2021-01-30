@@ -61,6 +61,7 @@ focalLength = (marker[1][0] * KNOWN_DISTANCE) / KNOWN_WIDTH
 while(True):
 	# load the image, find the marker in the image, then compute the
 	# distance to the marker from the camera
+	cap = cv2.VideoCapture(0)
 	ret, image = cap.read()
 	marker = find_marker(image)
 	inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
