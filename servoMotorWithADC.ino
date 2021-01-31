@@ -36,6 +36,8 @@
 #define echoPin       3     // echo pin (pin 3)
 #define HX711_DOUT    4     // HX711 dout pin (pin 4)
 #define HX711_SCK     5     // HX711 sck pin (pin 5)
+#define MOTOR_1A_PIN  7     // motor 1A pin (pin 7)
+#define MOTOR_1B_PIN  8     // motor 1B pin (pin 8)
 #define servoPin      9     // pin 9
 #define pin10_PWM     10    // pin 10 (PWM)
 #define ledPin        13    // pin 13 (built-in LED)
@@ -87,14 +89,14 @@ typedef struct task{
 task tasks[TASKS_NUM] ; // number of tasks in struct
 
 const unsigned long taskNum = TASKS_NUM ;
-const unsigned long tasksPeriodGCD = 5000/1000 ; // 5 [ms]
-const unsigned long periodUltraSonic = 30000/1000; // 30 [ms]
-const unsigned long periodBTModule = 25000/1000 ; // 25 [ms] 
-const unsigned long periodIfPressed = 50000/1000 ; // 50 [ms]
-const unsigned long periodServo = 20000/1000 ;    // 20 [ms] /* SG-90 has a 20 [ms] period; change for different servos */
-const unsigned long periodOutputLED = 250000/1000 ; // 250 [ms]
-const unsigned long periodRPiData = 125000/1000 ;   // 125 [ms]
-const unsigned long periodWaterGun = 75000/1000 ;   // 75 [ms]
+const unsigned long tasksPeriodGCD = 5 ; // 5 [ms]  5000 --> 5
+const unsigned long periodUltraSonic = 30; // 30 [ms] 30000 --> 30
+const unsigned long periodBTModule = 25 ; // 25 [ms]  25000 --> 25
+const unsigned long periodIfPressed = 50 ; // 50 [ms] 50000 --> 50
+const unsigned long periodServo = 20 ;    // 20 [ms]  20000 --> 20 /* SG-90 has a 20 [ms] period; change for different servos */
+const unsigned long periodOutputLED = 250 ; // 250 [ms] 250000 --> 250
+const unsigned long periodRPiData = 125 ;   // 125 [ms] 125000 --> 125
+const unsigned long periodWaterGun = 75 ;   // 75 [ms]  75000 --> 75
 
 unsigned char runningTasks[TASKS_NUM] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
@@ -298,7 +300,7 @@ int TickFct_LEDs(int state){
 
 /* State Machine 3 */
 int TickFct_servos(int state){
-  int tempVal ; /* using to test PID file (ino) */
+  static unsigned char i = 0 ; ; // used to control motor for a set duration
   
   switch(state){  // state transitions
     case SM3_init:
@@ -340,7 +342,11 @@ int TickFct_servos(int state){
       Serial.println("DEBUG STATEMENT: turnOnServo") ;
       /* equation for ADC_max to degrees: ADC_value/180 [degrees], so 
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
-      myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ;
+      for(i = 0; i < 255; i++){ // control motor for 255 ticks
+        digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
+        myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ;
+        digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;
+      }
       break ;
     default:
       break ;  
@@ -447,25 +453,34 @@ int TickFct_HC05(int state){
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            Serial.println("DEBUG STATEMENT: Plant_0") ;
-            Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
-            Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
+            #if 0
+              Serial.println("DEBUG STATEMENT: Plant_0") ;
+              Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
+              Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
+            #endif
+            
             break ;
           case 0x01:
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            Serial.println("DEBUG STATEMENT: Plant_1") ;
-            Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
-            Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
+            #if 0
+              Serial.println("DEBUG STATEMENT: Plant_1") ;
+              Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
+              Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
+            #endif
+            
             break ;
           case 0x02:
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
+
+            #if 0
+              Serial.println("DEBUG STATEMENT: Plant_2") ;
+              Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
+              Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
+            #endif
             
-            Serial.println("DEBUG STATEMENT: Plant_2") ;
-            Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
-            Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
             break ;
           default:
             Serial.println("DEBUG STATEMENT: PLANT_ID NOT FOUND") ;
@@ -475,19 +490,21 @@ int TickFct_HC05(int state){
             delay(100) ;
             break ;
         }
-        delay(1000) ;
+        //delay(1000) ;
       }
       Serial.print("Numbytes: "); Serial.println(numBytes) ;
-      delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
+      //delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
+      
       /* print BT buffer to serial monitor */
-      /*
-      Serial.print("DEBUG STATEMENT: sizeof arrBT "); Serial.println(sizeof(arr)/sizeof(arr[0])) ;  // outputs 0
-      for(i = 0; i < 4; i++){
-        Serial.print(arr[i]) ;
-        BT.print(arr[i]) ;
-      }
-      delay(2000) ;
-      */
+      #if 0
+        Serial.print("DEBUG STATEMENT: sizeof arrBT "); Serial.println(sizeof(arr)/sizeof(arr[0])) ;  // outputs 0
+        for(i = 0; i < 4; i++){
+          Serial.print(arr[i]) ;
+          BT.print(arr[i]) ;
+        }
+        delay(2000) ;
+      #endif
+      
       break ;
     default:
       break ;
@@ -500,9 +517,12 @@ int TickFct_ultraSonic(int state){
   unsigned int i = 0 ;  /* fill up distance array */
   const unsigned char K_MA = 4 ;  /* moving average value */
   static unsigned char j = 1 ; /* count until EMA is called */
-  static unsigned long distanceArr[100] = { 0 } ; /* measure distance */
+  
+  static unsigned long distanceArr[100] = { 0 } ; /* measure distance */  // 100 --> 200
   const unsigned char n = sizeof(distanceArr)/sizeof(distanceArr[0]) ;  /* size of arr */
   static unsigned long distanceArrEMA[n - K_MA + 1] = { 0 } ; /* smoothed out array, 4 is the MA value */ 
+  const unsigned char n_EMA = sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]) ;  // size of EMA filtered array
+  
   const unsigned char maxDist = 100 ;   /* maximum distance measured in [cm] */
   
   switch(state){
@@ -533,31 +553,50 @@ int TickFct_ultraSonic(int state){
       break ;
     case SM5_measure:
       Serial.println("DEBUG STATEMENT: SM5_measure") ;
-      for(i = 0; i < sizeof(distanceArr)/sizeof(distanceArr[0]) ; i++){ // measure distance function call
+      //for(i = 0; i < sizeof(distanceArr)/sizeof(distanceArr[0]) ; i++){ // measure distance function call
+      for(i = 0; i < n ; i++){ // measure distance function call
         distanceArr[i] = measureDistance(distanceArr) ;
         j++ ;
       }
       break ;
     case SM5_filter:
+      
+      #if 0 // if statement used to print distanceArr values for analysis
+        Serial.println("distanceArr: ") ;
+        for(i = 0; i < n; i++){
+          Serial.println(distanceArr[i]) ;  
+        }
+        delay(5000) ;
+      #endif
+      
       Serial.println("DEBUG STATEMENT: SM5_filter") ;
       // call EMA filter function
       filterEMA(distanceArr, distanceArrEMA, K_MA) ;
       
-      #if 0
+      #if 0 // use #if 0 to ignore statement during runtime
         Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
-        for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
-          Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+        //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){  // EMA function call
+        for(i = 0; i < n_EMA; i++){  // EMA function call
+          Serial.println(distanceArrEMA[i]) ;
         }
+        delay(5000) ; // remove after testing in excel
       #endif
       
       // call cut off filter function
-      cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
+      //cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
+      cutOffFilter(distanceArrEMA, maxDist, n_EMA) ;
+      
       // print data array to serial monitor
       #if 0     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
-        for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
-          Serial.print(distanceArrEMA[i]) ;  Serial.print(" ") ;
+        //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+        Serial.println("DEBUG STATEMENT: cutOffFilter array") ;
+        for(i = 0; i < n_EMA; i++){
+          Serial.println(distanceArrEMA[i]) ;
         }
+        delay(5000) ; // remove delay after testing data in excel
       #endif
+
+      // call difference algo
       
       j = 0 ;
       break ;
@@ -688,11 +727,13 @@ void setup() {
   pinMode(pin10_PWM, OUTPUT) ; /* potentiometer pin */
   analogWriteResolution(10) ; /* 10 bit PWM */
   pinMode(buttonPin, INPUT) ; /* button pin */
+  pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
+  pinMode(MOTOR_1B_PIN, OUTPUT) ; // controls motor 1B
 
   pinMode(echoPin, INPUT) ;   /* echo pin */
   pinMode(trigPin, OUTPUT) ;  /* trig pin */
 
-  Wire.begin(0x8) ;    /* I2C address */
+  Wire.begin(0x20) ;    /* I2C address */
   Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
   Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
   Wire.onReceive(event) ; /* call function when i2c gets data */
@@ -879,7 +920,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], unsigned char n, unsigned char decodeChar){
   unsigned int i ;
   Serial.println("DEBUG STATEMENT: decodePlantVal") ;
-  delay(2000) ;
+  //delay(2000) ;
   Serial.print("decodeChar(HEX) = "); Serial.println(decodeChar, HEX);
   
   for(i = 0; i < n; i++){
@@ -937,26 +978,30 @@ void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
 
   Serial.println("DEBUG STATEMENT: filterEMA") ;
 //  Serial.print("DEBUG STATEMENT: sizeof arr ") ; Serial.println(sizeof(arr)/sizeof(arr[0])) ;
-
-//  Serial.print("DEBUG STATEMENT: arr[] ") ;
-//  for(i = 0; i < MA; i++){
-//    Serial.print(arr[i]) ; Serial.print(" ");
-//  }
-  arrEMA[0] = (arr[0] + arr[1] + arr[2] + arr[3])/4 ;
+  
+  #if 0
+    Serial.print("DEBUG STATEMENT: arr[] ") ;
+    for(i = 0; i < MA; i++){
+      Serial.print(arr[i]) ; Serial.print(" ");
+    }
+  #endif
+  
+  arrEMA[0] = (arr[0] + arr[1] + arr[2] + arr[3])/4 ; // MA4 first calculation
     
   //Serial.print("DEBUG STATEMENT: arrEMA: "); Serial.println(arrEMA[0]) ;
   //delay(3000) ;
   
-  for(i = MA; i < 100; i++){  // start off at MA value as index
+  for(i = MA; i < 100; i++){  // start off at MA value as index   (100 --> 200)
     arrEMA[i - 3] = (arr[i] + arr[i - 1] + arr[i -2] + arr[i - 3])/4 ;
   }
   
-//  Serial.print("DEBUG STATEMENT: arrEMA = ") ;
-//  for(i = 0; i < 97; i++){
-//    Serial.print(arrEMA[i]); Serial.print(" ") ;  
-//  }
-//  delay(5000) ;
-
+  #if 0
+    Serial.print("DEBUG STATEMENT: arrEMA = ") ;
+    for(i = 0; i < 97; i++){
+      Serial.print(arrEMA[i]); Serial.print(" ") ;  
+    }
+    delay(5000) ;
+  #endif
 }
 
 /* 
@@ -1027,10 +1072,29 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 
 void event(void){
   Serial.println("DEBUG STATEMENT: i2c event") ;
+
+  static unsigned char numBytes_I2C, i ;
+  char chArr[] = {} ;
+  
+  i = 0 ;
+  
   digitalWrite(ledPin, LOW) ;
   delay(250) ;
   digitalWrite(ledPin, HIGH) ;
   delay(250) ;
+
+  numBytes_I2C = Wire.available() ;
+  
+  while(numBytes_I2C > 0){
+    unsigned char ch = Wire.read() ;
+    chArr[i] = ch ;
+    i++ ;
+  }
+  Serial.print("DEBUG STATEMENT: chArr = ") ;
+  for(i = 0; i < sizeof(chArr)/sizeof(chArr[0]); i++){
+    Serial.print(chArr[i]) ;  
+  }
+  Serial.print("\n") ;
 }
 
 /* 
