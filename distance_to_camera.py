@@ -32,11 +32,11 @@ def find_marker(image):
 	lowred = np.array([161, 155, 84])
 	highred = np.array([179, 255, 255])
 	redmask = cv2.inRange(color, lowred, highred)
-	color = cv2.GaussianBlur(redmask, (5, 5), 0)
-	edged = cv2.Canny(redmask, 100, 200)
+	#color = cv2.GaussianBlur(redmask, (5, 5), 0)
+	#edged = cv2.Canny(redmask, 100, 200)
 	# find the contours in the edged image and keep the largest one;
 	# we'll assume that this is our piece of paper in the image
-	cnts = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+	cnts = cv2.findContours(redmask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 	cnts = imutils.grab_contours(cnts)
 	c = max(cnts, key = cv2.contourArea)
 	# compute the bounding box of the of the paper region and return it
@@ -49,7 +49,7 @@ def distance_to_camera(knownWidth, focalLength, perWidth):
 cap = cv2.VideoCapture(0)
 # initialize the known distance from the camera to the object, which
 # in this case is 24 inches
-KNOWN_DISTANCE = 24.0
+#KNOWN_DISTANCE = 24.0
 # initialize the known object width, which in this case, the piece of
 # paper is 12 inches wide
 KNOWN_WIDTH = 11.0
