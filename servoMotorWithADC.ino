@@ -10,7 +10,7 @@
              (LUT) to output the direction in which the wheels will point. A button will mimic
              acceptance/denial of the servo during waiting times.
 
-    Notes/TO DO: (1) Added priority to task struct
+    Notes/TO DO: (1) I2C works
                  (2) Test PI controller code
                     (a) Wait for Vivian to finish her portions
                  (3) finish water gun function/SM
@@ -23,8 +23,9 @@
 
 /* include libraries */
 #include <Servo.h>
-#include <Snooze.h>
-#include <Wire.h>
+#include <i2c_t3.h>
+//#include <Snooze.h>
+//#include <Wire.h>
 #include <SoftwareSerial.h>
 #include <HX711_ADC.h>
 
@@ -60,12 +61,10 @@ typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 
 // change data from char --> uint16_t
-// remove sumOfData ... no longer needed
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
   //char data[3] ; // humidity reading from plant via BT
   uint16_t data ;   // humidity reading from plant via BT
-  //int sumOfData ;    // sum of plant watering data from data array
   int desiredVal ;   // desired water level for respective plants
   char priority ;   // determines priority of plants
   Bool isWatered ;   // determine if plant has already been watered
@@ -83,7 +82,7 @@ typedef struct task{
   unsigned long period ;  // rate at which task should tick
   unsigned long elapsedTime ; // time since last function tick
   int (*TickFct)(int) ; // function to call for task's tick
-  Bool isRunning ;  // 1 indicates already running
+  Bool isRunning ;  // 1/True indicates already running
 } task ;
 
 task tasks[TASKS_NUM] ; // number of tasks in struct
@@ -342,7 +341,7 @@ int TickFct_servos(int state){
       Serial.println("DEBUG STATEMENT: turnOnServo") ;
       /* equation for ADC_max to degrees: ADC_value/180 [degrees], so 
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
-      for(i = 0; i < 255; i++){ // control motor for 255 ticks
+      for(i = 0; i < 200; i++){ // control motor for 255 ticks
         digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
         myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ;
         digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;
@@ -392,7 +391,7 @@ int TickFct_HC05(int state){
       Serial.println("DEBUG STATEMENT: SM4_connect") ;
       numBytes = BT.available() ;
       Serial.print("numBytes: "); Serial.println(numBytes) ;
-      delay(500) ;
+      delay(50) ;
  
       if(numBytes > 0){ /* if buffer has message, read it */
         state = SM4_connect ;  
@@ -424,8 +423,8 @@ int TickFct_HC05(int state){
     case SM4_connect:
       digitalWrite(ledPin, LOW) ;
       delay(100) ;
-      digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
-      delay(100) ;
+      //digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
+      //delay(100) ;
 
       //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
@@ -505,6 +504,8 @@ int TickFct_HC05(int state){
         delay(2000) ;
       #endif
       
+      digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
+      delay(100) ;
       break ;
     default:
       break ;
@@ -609,7 +610,7 @@ int TickFct_ultraSonic(int state){
 
 /* State Machine 6 */
 int TickFct_dataFromRPi(int state){
-  char dataRPi = 0 ;
+  static unsigned char dataRPi = 0 ;
   switch(state){  // state transitions
     case SM6_init:
       state = SM6_wait ;
@@ -626,12 +627,11 @@ int TickFct_dataFromRPi(int state){
       break ;
     case SM6_wait:
       Serial.println("DEBUG STATEMENT: SM6_wait") ;
-      Wire.requestFrom(0x8, 1) ;
+
       while(Wire.available()){
           dataRPi = Wire.read() ;
       }
-      Serial.println("DEBUG STATEMENT: dataRPi = ") ;
-      Serial.print(dataRPi, DEC) ;
+      Serial.print("DEBUG STATEMENT: dataRPi = ") ; Serial.println(dataRPi, DEC) ;
       delayMicroseconds(10) ;
       break ;
     default:
@@ -732,12 +732,17 @@ void setup() {
 
   pinMode(echoPin, INPUT) ;   /* echo pin */
   pinMode(trigPin, OUTPUT) ;  /* trig pin */
-
-  Wire.begin(0x20) ;    /* I2C address */
+  
   Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
   Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
-  Wire.onReceive(event) ; /* call function when i2c gets data */
+  Wire.begin(0x8) ;    /* I2C address */
 
+  //Serial.print("SDA: "); Serial.println(Wire.getSDA()) ;
+  //Serial.print("SCL: "); Serial.println(Wire.getSCL()) ;
+  //delay(2000) ;
+
+  Wire.onReceive(event) ; /* call function when i2c gets data */
+  
   // comment out until weight sensor is finished
 //  /* set up HX711 */
 //  LoadCell.begin() ;  /* load cell set up */
@@ -1070,31 +1075,29 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
   return (integralVal + errorVal) ;
 }
 
+/* 
+  Function name: event
+  Purpose: Uses an interrupt to obtain data from the RPi
+  Details: Instead of using the task scheduler, an interrupt is used
+           to obtain all information via I2C.
+
+  Parameters:
+        Name            Details
+        [In] dataI2C    - data being read from I2C bus
+  Return Value:
+    None
+  TODO:
+    N/A
+*/
+
 void event(void){
-  Serial.println("DEBUG STATEMENT: i2c event") ;
+  Serial.println("DEBUG STATEMENT: event") ;
+  volatile unsigned char dataI2C ;
 
-  static unsigned char numBytes_I2C, i ;
-  char chArr[] = {} ;
-  
-  i = 0 ;
-  
-  digitalWrite(ledPin, LOW) ;
-  delay(250) ;
-  digitalWrite(ledPin, HIGH) ;
-  delay(250) ;
-
-  numBytes_I2C = Wire.available() ;
-  
-  while(numBytes_I2C > 0){
-    unsigned char ch = Wire.read() ;
-    chArr[i] = ch ;
-    i++ ;
+  while(Wire.available()){
+    dataI2C = Wire.read() ;
+    Serial.print("dataI2C = "); Serial.println(dataI2C, DEC) ;
   }
-  Serial.print("DEBUG STATEMENT: chArr = ") ;
-  for(i = 0; i < sizeof(chArr)/sizeof(chArr[0]); i++){
-    Serial.print(chArr[i]) ;  
-  }
-  Serial.print("\n") ;
 }
 
 /* 
