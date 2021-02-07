@@ -8,23 +8,10 @@ int desiredVal = 562;
 bool isWatered = true;
 unsigned char myVal = 0x00;
 
-//#define led 8
-//#define button 5
-//int buttonState = 0;
-//int flag = 0;
-
-
-
 SoftwareSerial mySerial(2,1); // RX | TX
 
 void setup()
 {
-//  pinMode(button, INPUT);
-//  pinMode(led, OUTPUT);
-
-  // set the pins to LOW
-//  digitalWrite(led, LOW);
-
     mySerial.begin(38400);
     pinMode(pot, INPUT);
     pinMode(bt_power, OUTPUT);
@@ -56,19 +43,6 @@ void loop()
   myVal = 0x00;
   
   delay(10000);
-  
- /* buttonState = digitalRead(button);
-  if(buttonState == HIGH){
-    flag = 2;
-    digitalWrite(led, HIGH);
-  }
-  else{
-    flag = 0;
-    digitalWrite(led, LOW);
-  }
-  mySerial.println(flag);
-  delay(10000);*/
-
   digitalWrite(bt_power, LOW);
   delay(20000); // reset
   delay(20000); // off for slave 3
