@@ -126,8 +126,26 @@ void loop() {
         holdVal = holdVal | 0;
       }
       
-      sortPlants[2] = plantMask;
-      sortSensor[2] = holdVal;
+  /*  int flag;
+    for (int i=0; i<3; i++){
+      if (sortPlants[i] == plantMask){
+        flag = 1;
+        break;
+      }
+      else{
+        flag = 0;
+      }
+    }
+    if (flag == 1){
+        sortSensor[i] = holdVal;
+    }
+    else{
+        sortPlants[2] = plantMask;
+        sortSensor[2] = holdVal;
+    }
+
+    //sortPlants[2] = plantMask;
+    //sortSensor[2] = holdVal;
 
     for (int j=0; j<2; j++){
       int tempSensor;
@@ -143,12 +161,15 @@ void loop() {
           sortPlants[i+1] = tempPlant;
         }
       }
-    }
-      
+    }*/
+      sortPlants[2] = plantMask;
+      sortSensor[2] = holdVal;
     
       Serial.println(sortPlants[0]);
       delay(50);
       Serial.println(sortPlants[1]);
+      delay(50);
+      Serial.println(sortPlants[2]);
       delay(50);
       Serial.println(sortSensor[0], HEX);
       delay(50);
