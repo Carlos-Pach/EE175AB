@@ -37,7 +37,6 @@ int holdVal;  // hold value before placing into array
 /*
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
-
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
   char data[4] ; // humidity reading from plant via BT
@@ -45,7 +44,6 @@ typedef struct PlantData{
   int desiredVal ;   // desired water level for respective plants
   Bool isWatered ;   // determine if plant has already been watered
 } tPlantData ;
-
 tPlantData plants[NUM_PLANTS] ; // number of plants to water*/
 
 void setup() {
@@ -64,7 +62,8 @@ void loop() {
     i = 0;
     Serial.println(storeVal); // prints recived value
     delay(100);
-    if (storeVal[0] > 55){
+    
+    if (storeVal[1] & 4){
       // set values = to corresponding hex values, otherwise values above 9 are saved as decimal
       if (storeVal[0] == 56){ // hex A
         sensorNum = 8;
@@ -130,9 +129,10 @@ void loop() {
       sortPlants[2] = plantMask;
       sortSensor[2] = holdVal;
 
-      for (int i=0; i<3; i++){
-        int tempSensor;
-        int tempPlant;
+    for (int j=0; j<2; j++){
+      int tempSensor;
+      int tempPlant;
+      for (int i=0; i<2; i++){
         if (sortSensor[i] < sortSensor[i+1]){
           tempSensor = sortSensor[i];
           sortSensor[i] = sortSensor[i+1];
@@ -143,10 +143,18 @@ void loop() {
           sortPlants[i+1] = tempPlant;
         }
       }
+    }
+      
     
       Serial.println(sortPlants[0]);
       delay(50);
+      Serial.println(sortPlants[1]);
+      delay(50);
       Serial.println(sortSensor[0], HEX);
+      delay(50);
+      Serial.println(sortSensor[1], HEX);
+      delay(50);
+      Serial.println(sortSensor[2], HEX);
       delay(50);
       for (j = 0; j<2; j++){  // clear array
         storeVal[j] = 0;
@@ -173,7 +181,6 @@ void loop() {
   else{
     charArray[arrayIndex] = state;
     arrayIndex++;
-
     if ((state > 47) && (state < 58)){
       storeVal[j] = state;
       j++;
@@ -197,7 +204,6 @@ void loop() {
       }
     }
   }
-
     Serial.print("plant number: ");
     //mySerial.write(plantNum);
     Serial.println(plantNum);
