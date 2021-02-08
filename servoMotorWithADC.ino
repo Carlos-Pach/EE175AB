@@ -11,13 +11,15 @@
              acceptance/denial of the servo during waiting times.
 
     Notes/TO DO: (1) I2C works
+                    (a) Ask Chad and Kelly to help send data from Pi --> Teensy
                  (2) Test PI controller code
-                    (a) Wait for Vivian to finish her portions
+                    (a) Implement controller with received data
                  (3) finish water gun function/SM
                     (a) Finish start-up/calibration code, and water measuring functions
                       (i) Look at github code line 55 to port into SM code
-                 (4) Create new filter for ultra sonic sensor to return 1 single value
-                    (a) look at HR monitor algo code(?) 
+                 (4) Finished sorting algo for distance measurements
+                    (a) Fix sorting algo (sometimes not correctly sorted)
+                    (b) Test further with changing distance
 
 */
 
@@ -191,6 +193,7 @@ Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig = True ;    // 0 - 
 volatile unsigned char distRPi_g ;  // distance calculated by RPi
+static unsigned long distTeensy_g ;
 unsigned int valPWM_g ;
 /* values for PID system ... can be changed as testing continues */
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -210,7 +213,9 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function tha
 void event(void) ;  // i2c event when getting data
 void calibrate(void) ;
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar) ;  // returns decoded plant val (in dec)
-uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high) ;  // binary search for finding value
+uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high, uint16_t arrCap) ;  // binary search for finding value
+void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addresses
+void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
 /* end function prototypes */
 
 
@@ -291,7 +296,9 @@ int TickFct_LEDs(int state){
       break ;
     case SM_offLED:
       Serial.println("DEBUG STATEMENT: offLED action") ;
-      outputPWM(0, pin10_PWM) ;           // turn off LED (pin 10)
+      // remove bottom statement so binSearch wont be called every time
+      //outputPWM(0, pin10_PWM) ;           // turn off LED (pin 10)
+      analogWrite(pin10_PWM, 0) ; // turn off LED (pin 10)
       break ;
     default:
       outputPWM(0, pin10_PWM) ;     // temporary adding second output statement
@@ -309,16 +316,10 @@ int TickFct_servos(int state){
       Serial.println("DEBUG STATEMENT: SM3_init") ;
       state = SM3_turnOffServo ;
       
-      for(i = 0; i < 1000; i++){  // turn on motor 1A
+      for(i = 0; i < 5000; i++){  // turn on motor 1A
         digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
-        analogWrite(pin10_PWM, 255) ;
-        delay(5) ;
+        analogWrite(pin10_PWM, 255) ; //delay(5) ;
       }
-//      if(!buttonPressed_g){ /* if button is not pressed */
-//        state = SM3_turnOffServo ;
-//      } else{
-//        state = SM3_turnOnServo ;  
-//      }
       break ;
     case SM3_turnOffServo:
       if(!buttonPressed_g){ /* if button is not pressed */
@@ -350,10 +351,10 @@ int TickFct_servos(int state){
       Serial.println("DEBUG STATEMENT: turnOnServo") ;
       /* equation for ADC_max to degrees: ADC_value/180 [degrees], so 
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
-      for(i = 0; i < 255; i++){ // control motor for 255 ticks
+      for(i = 0; i < 1000; i++){ // control motor for 255 ticks
         digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
         myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ;
-        digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;
+        //digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;  // turn off motor ... may remove
       }
       break ;
     default:
@@ -569,7 +570,7 @@ int TickFct_ultraSonic(int state){
       break ;
     case SM5_filter:
       
-      #if 0 // if statement used to print distanceArr values for analysis
+      #if 1 // if statement used to print distanceArr values for analysis
         Serial.println("distanceArr: ") ;
         for(i = 0; i < n; i++){
           Serial.println(distanceArr[i]) ;  
@@ -581,7 +582,7 @@ int TickFct_ultraSonic(int state){
       // call EMA filter function
       filterEMA(distanceArr, distanceArrEMA, K_MA) ;
       
-      #if 0 // use #if 0 to ignore statement during runtime
+      #if 1 // use #if 0 to ignore statement during runtime
         Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
         //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){  // EMA function call
         for(i = 0; i < n_EMA; i++){  // EMA function call
@@ -595,7 +596,7 @@ int TickFct_ultraSonic(int state){
       cutOffFilter(distanceArrEMA, maxDist, n_EMA) ;
       
       // print data array to serial monitor
-      #if 0     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
+      #if 1     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
         //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
         Serial.println("DEBUG STATEMENT: cutOffFilter array") ;
         for(i = 0; i < n_EMA; i++){
@@ -604,7 +605,22 @@ int TickFct_ultraSonic(int state){
         delay(5000) ; // remove delay after testing data in excel
       #endif
 
-      // call difference algo
+      // call ascending values algo
+      ascendSort(distanceArrEMA, n_EMA) ;
+      #if 1
+        Serial.println("DEBUG STATEMENT: ascendSort") ;
+        for(i = 0; i < n_EMA; i++){
+          Serial.println(distanceArrEMA[i]) ;  
+        }
+      #endif
+
+      // print median value
+      #if 1
+        Serial.print("DEBUG STATEMENT: sorted arr median = ") ;
+        Serial.println(distanceArrEMA[(n_EMA-1)/2]) ;
+        delay(3000) ;
+      #endif
+      distTeensy_g = distanceArrEMA[(n_EMA-1)/2] ;  // return approx distance from teensy
       
       j = 0 ;
       break ;
@@ -930,10 +946,10 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
       [In] arrCap     - max size of array
       
   Return Value:
-    binVal
+    arr[mid]
 */
 uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high, uint16_t arrCap){
-  uint16_t mid , p1;  // finds midpoint of arr
+  uint16_t mid ;  // finds midpoint of arr
   Serial.println("DEBUG STATEMENT: findNumBinSearch") ;
   Serial.print("high, low = "); Serial.print(high); Serial.print(" "); Serial.println(low);
 
@@ -944,32 +960,28 @@ uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t h
     }
     mid = ((high - low)/2) + low ;
 
-    if(val > arr[mid]){ // right side of arr
-      if(mid+1 > arrCap){
+    if(val > arr[mid]){ // right side of arr  (val > arr[mid])
+      if(mid+1 > arrCap){ // check if (mid + 1) exceeds arr range
         Serial.print("DEBUG STATEMENT: arr OOR\n");
         return 999 ;
       } else{
-          if(arr[mid+1] >= val){
+          if(arr[mid+1] >= val){  //  (arr[mid] < val <= arr[mid+1])
             return arr[mid] ;  
           } else{
             return findNumBinSearch(arr, val, mid+1, high, arrCap) ;
           }
       }
-//      Serial.print("Arr[mid] = "); Serial.println(arr[mid]) ;
-//      return findNumBinSearch(arr, val, (mid + 1), high) ;
     } else{   // (val < arr[mid]) left side of arr
-      if(mid-1 < 0){
-        Serial.print("DEBUG STATEMENT: arr OOR\n") ;
-        return 999 ;
-//      Serial.print("Arr[mid] = "); Serial.println(arr[mid]) ;
-//      return findNumBinSearch(arr, val, low, (mid - 1) ) ;  
-    } else{
-      if(arr[mid-1] <= val){
-        return arr[mid] ;  
-      } else{
-        return findNumBinSearch(arr, val, low, mid-1, arrCap) ;
-      }
-    }
+        if(mid-1 < 0){  // check if (mid - 1) goes under arr range
+          Serial.print("DEBUG STATEMENT: arr OOR\n") ;
+          return 999 ;  
+        } else{
+          if(arr[mid-1] <= val){  //  (arr[mid-1] <= val < arr[mid])
+            return arr[mid] ;  
+          } else{
+            return findNumBinSearch(arr, val, low, mid-1, arrCap) ;
+          }
+        }
     }
   } else{ // low > high
     Serial.print("DEBUG STATEMENT: low > high\n") ;  
@@ -1226,4 +1238,47 @@ void calibrate(void){
   // more to finish (?)
 }
 
+/* 
+  Function name: Swap
+  Purpose: Swaps values of two address
+  Details: Used in sorting algos to swap values using pointers
+
+  Paramters:
+    TODO
+  Return value:
+    None
+*/
+void swap(unsigned long *p1, unsigned long *p2){
+  //Serial.println("DEBUG STATEMENT: swap") ;
+  
+  unsigned long temp = *p1 ;
+  *p1 = *p2 ;
+  *p2 = temp ;
+}
+
+/* 
+  Function name: ascendSort
+  Purpose: TODO
+  Details: TODO
+
+  Parameters:
+    TODO
+  Return value:
+    None
+*/
+void ascendSort(unsigned long arr[], unsigned char n){
+  //Serial.println("DEBUG STATEMENT: ascendSort") ;
+  uint16_t i, j, indx ;
+
+  for(i = 0; i < (n - 1); i++){
+    indx = i ;
+    
+    for(j = (i + 1); j < n; j++){
+      if(arr[indx] > arr[j]){  // check if arr[j] is smaller than arr[indx]
+          indx = j ;  // indx now has smaller value from arr
+      }
+      swap(&arr[indx], &arr[i]) ;
+    }   
+  }
+}
 /* end functions */
