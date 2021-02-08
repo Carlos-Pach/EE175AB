@@ -59,6 +59,7 @@ HX711_ADC LoadCell(HX711_DOUT, HX711_SCK) ;
 
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
+typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
 
 // change data from char --> uint16_t
 typedef struct PlantData{
@@ -66,7 +67,7 @@ typedef struct PlantData{
   //char data[3] ; // humidity reading from plant via BT
   uint16_t data ;   // humidity reading from plant via BT
   int desiredVal ;   // desired water level for respective plants
-  char priority ;   // determines priority of plants
+  PLANT_PRIORITY priority ;   // determines priority of plants
   Bool isWatered ;   // determine if plant has already been watered
 } tPlantData ;
 
@@ -185,10 +186,11 @@ const uint16_t plantVals[] = {  32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 3
                               } ;
 
 /* declare global variables */
-Bool buttonPressed_g ;    // 0 - not pressed, 1 - pressed
+Bool buttonPressed_g = False;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig = True ;    // 0 - 
+volatile unsigned char distRPi_g ;  // distance calculated by RPi
 unsigned int valPWM_g ;
 /* values for PID system ... can be changed as testing continues */
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -207,7 +209,8 @@ int32_t calculateError(int desiredVal, int approxVal) ;  // function that calcul
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
 void event(void) ;  // i2c event when getting data
 void calibrate(void) ;
-uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], unsigned char n, unsigned char decodeChar) ;  // returns decoded plant val (in dec)
+uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar) ;  // returns decoded plant val (in dec)
+uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high) ;  // binary search for finding value
 /* end function prototypes */
 
 
@@ -299,16 +302,23 @@ int TickFct_LEDs(int state){
 
 /* State Machine 3 */
 int TickFct_servos(int state){
-  static unsigned char i = 0 ; ; // used to control motor for a set duration
+  static unsigned short i = 0 ; ; // used to control motor for a set duration
   
   switch(state){  // state transitions
     case SM3_init:
       Serial.println("DEBUG STATEMENT: SM3_init") ;
-      if(!buttonPressed_g){ /* if button is not pressed */
-        state = SM3_turnOffServo ;
-      } else{
-        state = SM3_turnOnServo ;  
+      state = SM3_turnOffServo ;
+      
+      for(i = 0; i < 1000; i++){  // turn on motor 1A
+        digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+        analogWrite(pin10_PWM, 255) ;
+        delay(5) ;
       }
+//      if(!buttonPressed_g){ /* if button is not pressed */
+//        state = SM3_turnOffServo ;
+//      } else{
+//        state = SM3_turnOnServo ;  
+//      }
       break ;
     case SM3_turnOffServo:
       if(!buttonPressed_g){ /* if button is not pressed */
@@ -333,15 +343,14 @@ int TickFct_servos(int state){
     case SM3_init:
       break ;
     case SM3_turnOffServo:
-      /* do nothing */
-      __asm("nop") ;
-      /* test out PID response here */
+      // turn of motors
+      digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
       break ;
     case SM3_turnOnServo:
       Serial.println("DEBUG STATEMENT: turnOnServo") ;
       /* equation for ADC_max to degrees: ADC_value/180 [degrees], so 
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
-      for(i = 0; i < 200; i++){ // control motor for 255 ticks
+      for(i = 0; i < 255; i++){ // control motor for 255 ticks
         digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
         myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ;
         digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;
@@ -356,7 +365,7 @@ int TickFct_servos(int state){
 /* State Machine 4 */
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
-  char numOfPlant ;
+  unsigned char numOfPlant ;
   static unsigned char plantDecodeID = 0x00 ;
   char arr[] = {} ;  // create empty array buffer
   unsigned char chRecv = 0x00 ;
@@ -423,8 +432,6 @@ int TickFct_HC05(int state){
     case SM4_connect:
       digitalWrite(ledPin, LOW) ;
       delay(100) ;
-      //digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
-      //delay(100) ;
 
       //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
@@ -833,19 +840,19 @@ void setup() {
   plants[0].data = 0 ;
   plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
-  plants[0].priority = 0 ;
+  plants[0].priority = low ;
 
   plants[1].plantNum = Plant_1 ;
   plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
-  plants[1].priority = 0 ;
+  plants[1].priority = low ;
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
-  plants[2].priority = 0 ;
+  plants[2].priority = low ;
   
 }
 
@@ -877,6 +884,7 @@ void outputPWM(unsigned int val, unsigned char pinNum){
   
 //  Serial.println("DEBUG STATEMENT: Entering findNum function") ;
   valPWM = findNum(arrPWM, val, arrSize) ;   // arguments for findNum are: (array, inputValue, lowestIndex, highestIndex)
+  valPWM = findNumBinSearch(arrPWM, val, 0, arrSize - 1, arrSize) ;
   analogWrite(pinNum, (int)valPWM) ; // pin10_PWM --> pinNum
 }
 
@@ -909,6 +917,67 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 }
 
 /* 
+  Function name: findNumBinSearch
+  Purpose: Finds a desired number using binary search
+  Details: The function uses binary search to find the desired value in a LUT array
+
+  Parameters:
+      NAME            Details
+      [In] arr[]      - array being used to search
+      [In] val        - val that is being searched
+      [In] low        - lowest index of array
+      [In] high       - highest index of array
+      [In] arrCap     - max size of array
+      
+  Return Value:
+    binVal
+*/
+uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high, uint16_t arrCap){
+  uint16_t mid , p1;  // finds midpoint of arr
+  Serial.println("DEBUG STATEMENT: findNumBinSearch") ;
+  Serial.print("high, low = "); Serial.print(high); Serial.print(" "); Serial.println(low);
+
+  if(high > low){ // start binary search
+    if(val > arr[arrCap - 1]){  // val is greater than highest arr val
+      Serial.println("DEBUG STATEMENT: val exceeds max") ;
+      return 500 ;  
+    }
+    mid = ((high - low)/2) + low ;
+
+    if(val > arr[mid]){ // right side of arr
+      if(mid+1 > arrCap){
+        Serial.print("DEBUG STATEMENT: arr OOR\n");
+        return 999 ;
+      } else{
+          if(arr[mid+1] >= val){
+            return arr[mid] ;  
+          } else{
+            return findNumBinSearch(arr, val, mid+1, high, arrCap) ;
+          }
+      }
+//      Serial.print("Arr[mid] = "); Serial.println(arr[mid]) ;
+//      return findNumBinSearch(arr, val, (mid + 1), high) ;
+    } else{   // (val < arr[mid]) left side of arr
+      if(mid-1 < 0){
+        Serial.print("DEBUG STATEMENT: arr OOR\n") ;
+        return 999 ;
+//      Serial.print("Arr[mid] = "); Serial.println(arr[mid]) ;
+//      return findNumBinSearch(arr, val, low, (mid - 1) ) ;  
+    } else{
+      if(arr[mid-1] <= val){
+        return arr[mid] ;  
+      } else{
+        return findNumBinSearch(arr, val, low, mid-1, arrCap) ;
+      }
+    }
+    }
+  } else{ // low > high
+    Serial.print("DEBUG STATEMENT: low > high\n") ;  
+    return 0 ;
+  } 
+}
+
+/* 
   Function name: decodePlantVal
   Purpose: Decodes the plant's moisture sensor data
   Details: Uses 2 arrays to find the encoded data value from the plant.
@@ -922,7 +991,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
   Return value:
         arrPlantVal[index]
 */
-uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], unsigned char n, unsigned char decodeChar){
+uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar){
   unsigned int i ;
   Serial.println("DEBUG STATEMENT: decodePlantVal") ;
   //delay(2000) ;
@@ -1091,12 +1160,10 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 */
 
 void event(void){
-  Serial.println("DEBUG STATEMENT: event") ;
-  volatile unsigned char dataI2C ;
+  //Serial.println("DEBUG STATEMENT: event") ;
 
-  while(Wire.available()){
-    dataI2C = Wire.read() ;
-    Serial.print("dataI2C = "); Serial.println(dataI2C, DEC) ;
+  while(Wire.available()){  // read from I2C bus
+    distRPi_g = Wire.read() ; // read approx distance calculated
   }
 }
 
@@ -1134,7 +1201,6 @@ void calibrate(void){
 //
 //  while(resumeCal == False){
 //    LoadCell.update() ;
-//    // TODO: FINISH CODE (github: line 120)  
 //  }
 //
 //  LoadCell.refreshDataSet() ;
