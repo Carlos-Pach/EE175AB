@@ -17,6 +17,7 @@ char charArray[25]; // array for all characters following
 int j = 0;  // var to use as index
 
 int i=0;  // array index
+char myChar;
 char storeVal[2];
 
 /* plant information
@@ -48,7 +49,6 @@ tPlantData plants[NUM_PLANTS] ; // number of plants to water*/
 
 void setup() {
   mySerial.begin(38400);
-//  pinMode(ledPin, OUTPUT);
 }
 
 void loop() {
@@ -126,7 +126,7 @@ void loop() {
         holdVal = holdVal | 0;
       }
       
-  /*  int flag;
+    int flag;
     for (int i=0; i<3; i++){
       if (sortPlants[i] == plantMask){
         flag = 1;
@@ -141,11 +141,17 @@ void loop() {
     }
     else{
         sortPlants[2] = plantMask;
-        sortSensor[2] = holdVal;
+    
+        if ((holdVal > 0x11) && (holdVal < 0x1F)){
+          sortSensor[2] = holdVal;
+        }
     }
 
-    //sortPlants[2] = plantMask;
-    //sortSensor[2] = holdVal;
+    /*sortPlants[2] = plantMask;
+    
+    if ((holdVal > 0x11) && (holdVal < 0x1F)){
+        sortSensor[2] = holdVal;
+    }*/
 
     for (int j=0; j<2; j++){
       int tempSensor;
@@ -158,25 +164,18 @@ void loop() {
 
           tempPlant = sortPlants[i];
           sortPlants[i] = sortPlants[i+1];
-          sortPlants[i+1] = tempPlant;
+          sortPlants[i+1] = tempPlant; 
         }
       }
-    }*/
-      sortPlants[2] = plantMask;
-      sortSensor[2] = holdVal;
+    }
     
       Serial.println(sortPlants[0]);
-      delay(50);
       Serial.println(sortPlants[1]);
-      delay(50);
       Serial.println(sortPlants[2]);
-      delay(50);
       Serial.println(sortSensor[0], HEX);
-      delay(50);
       Serial.println(sortSensor[1], HEX);
-      delay(50);
       Serial.println(sortSensor[2], HEX);
-      delay(50);
+      delay(500);
       for (j = 0; j<2; j++){  // clear array
         storeVal[j] = 0;
       }
