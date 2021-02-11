@@ -1,0 +1,39 @@
+item {
+  id: 1
+  name: 'zero'
+}
+
+item {
+  id: 2
+  name: 'one'
+}
+
+item {
+  id: 3
+  name: 'two'
+}
+
+item {
+  id: 4
+  name: 'three'
+}
+
+item {
+  id: 5
+  name: 'squirrel'
+}
+
+item {
+  id: 6
+  name: 'raccoon'
+}
+
+item {
+  id: 7
+  name: 'person'
+}
+
+item {
+  id: 8
+  name: 'potted plant'
+}
