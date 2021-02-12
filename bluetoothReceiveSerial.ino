@@ -49,8 +49,6 @@ void loop() {
 
   if (i == 2){    // once the array is filled, clear index, clear array
     i = 0;
-    Serial.println(storeVal); // prints recived value
-    delay(50);
     
     if (storeVal[1] & 4){
       // set values = to corresponding hex values, otherwise values above 9 are saved as decimal
