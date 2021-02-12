@@ -22,6 +22,7 @@ int sensorNum;  // hold value of byte 0
 int sensorMask;
 int sortSensor[3];  // array for corresponding sensor values
 int holdVal;  // hold value before placing into array
+int Flag;
 
 /*
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
@@ -114,26 +115,34 @@ void loop() {
         holdVal = holdVal | 0;
       }
       
-      int flag;
-      for (int i=0; i<3; i++){
-        if (sortPlants[i] == plantMask){
-          flag = 1;
+      for (int a=0; a<3; a++){
+        if (sortPlants[a] == plantMask){
+          Flag = a;
           break;
         }
         else{
-          flag = 0;
+          Flag = 4;
         }
       }
-      
-      if (flag == 1){
-          sortSensor[i] = holdVal;
-      }
+
+      if (Flag != 4){
+          if ((holdVal > 0x11) && (holdVal < 0x1F)){
+            sortSensor[Flag] = holdVal;
+          }
+        }
       else{
-      sortPlants[2] = plantMask;
-        if ((holdVal > 0x11) && (holdVal < 0x1F)){
-          sortSensor[2] = holdVal;
-        }
+          if ((holdVal > 0x11) && (holdVal < 0x1F)){
+              sortSensor[2] = holdVal;
+              sortPlants[2] = plantMask;
+          } 
       }
+
+      
+          /*if ((holdVal > 0x11) && (holdVal < 0x1F)){
+            sortSensor[2] = holdVal;
+            sortPlants[2] = plantMask;
+          }*/
+      
 
       for (int j=0; j<2; j++){
         int tempSensor;
