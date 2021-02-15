@@ -18,20 +18,17 @@
                     (a) Finish start-up/calibration code, and water measuring functions
                       (i) Look at github code line 55 to port into SM code
                  (4) Finished sorting algo for distance measurements
-                    (a) Fix sorting algo (sometimes not correctly sorted)
-                    (b) Test further with changing distance
+                    (a) Test further with changing distance
 
 */
 
 /* include libraries */
 #include <Servo.h>
 #include <i2c_t3.h>
-//#include <Snooze.h>
-//#include <Wire.h>
 #include <SoftwareSerial.h>
 #include <HX711_ADC.h>
 
-/* define macros */
+// define macros
 #define pinA0         0     // analog  (pin 14)
 #define RxPin         0     // pin 0 (digital 0)
 #define TxPin         1     // pin 1 (digital 1)
@@ -39,14 +36,19 @@
 #define echoPin       3     // echo pin (pin 3)
 #define HX711_DOUT    4     // HX711 dout pin (pin 4)
 #define HX711_SCK     5     // HX711 sck pin (pin 5)
-#define MOTOR_1A_PIN  7     // motor 1A pin (pin 7)
-#define MOTOR_1B_PIN  8     // motor 1B pin (pin 8)
+#define MOTOR_1_PWM   6     // Motor 1 PWM pin (pin 6)
 #define servoPin      9     // pin 9
 #define pin10_PWM     10    // pin 10 (PWM)
+#define MOTOR_1A_PIN  11    // motor 1A pin (pin 11)
+#define MOTOR_1B_PIN  12    // motor 1B pin (pin 12)
 #define ledPin        13    // pin 13 (built-in LED)
 #define buttonPin     15    // pin 15 (analog 1) 
 #define i2cPinSCL     19    // pin 19 (SCL0)
 #define i2cPinSDA     18    // pin 18 (SDA0)
+#define MOTOR_2_PWM   20     // PWM motor 2 pin (pin 20)
+#define MOTOR_2B_PIN  21    // motor 2B pin (pin 21)
+#define MOTOR_2A_PIN  22    // motor 2A pin (pin 22)
+
 
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
@@ -63,10 +65,9 @@ typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
 
-// change data from char --> uint16_t
+
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
-  //char data[3] ; // humidity reading from plant via BT
   uint16_t data ;   // humidity reading from plant via BT
   int desiredVal ;   // desired water level for respective plants
   PLANT_PRIORITY priority ;   // determines priority of plants
@@ -78,7 +79,7 @@ tPlantData plants[NUM_PLANTS] ; // number of plants to water
 
 /* Task scheduler runs in [us] */
 /* create task scheduler */
-IntervalTimer myTimer ;
+//IntervalTimer myTimer ;
 
 typedef struct task{
   int state ; // current state of task
@@ -96,7 +97,7 @@ const unsigned long periodUltraSonic = 30; // 30 [ms] 30000 --> 30
 const unsigned long periodBTModule = 25 ; // 25 [ms]  25000 --> 25
 const unsigned long periodIfPressed = 50 ; // 50 [ms] 50000 --> 50
 const unsigned long periodServo = 20 ;    // 20 [ms]  20000 --> 20 /* SG-90 has a 20 [ms] period; change for different servos */
-const unsigned long periodOutputLED = 250 ; // 250 [ms] 250000 --> 250
+const unsigned long periodOutputLED = 150 ; // 150 [ms] 250000 --> 250 --> 150
 const unsigned long periodRPiData = 125 ;   // 125 [ms] 125000 --> 125
 const unsigned long periodWaterGun = 75 ;   // 75 [ms]  75000 --> 75
 
@@ -183,8 +184,8 @@ const uint16_t plantDecoder[] = {    0x0,   // 0
                                      0x1F,   // 31
                                 } ;
 const uint16_t plantVals[] = {  32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384,
-                                416, 448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800,
-                                832, 864, 896, 928, 960, 992, 1023
+                                416, 448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 
+                                800, 832, 864, 896, 928, 960, 992, 1023
                               } ;
 
 /* declare global variables */
@@ -206,16 +207,16 @@ const int kd = 3000 ;  // kd - derivative value for PID sys (3.0)
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
 unsigned long measureDistance(unsigned long *arr) ;
-void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;   // smooths out data using simple moving average with value K (MA)
+void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ;   // smooths out data using simple moving average with value K
 void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;  // function caps array values to max distance
 int32_t calculateError(int desiredVal, int approxVal) ;  // function that calculates error for PI sys
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
 void event(void) ;  // i2c event when getting data
 void calibrate(void) ;
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar) ;  // returns decoded plant val (in dec)
-uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high, uint16_t arrCap) ;  // binary search for finding value
 void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addresses
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
+void bubbleSortPlant(void) ;
 /* end function prototypes */
 
 
@@ -242,7 +243,7 @@ int TickFct_checkIfPressed(int state){
     case SM1_init:
       break ;
     case SM_isPressed:
-      /* If digitalRead returns 0, assign False to buttonPressed_g , otherwise assign True */
+      // If digitalRead returns 0, assign False to buttonPressed_g , otherwise assign True 
       buttonPressed_g = (digitalRead(buttonPin) == 0 ? False : True) ;
       Serial.print("buttonPressed_g: "); Serial.println(buttonPressed_g) ;
       break ;
@@ -290,7 +291,6 @@ int TickFct_LEDs(int state){
       break ;
     case SM_onLED:
       valPWM_g = analogRead(pinA0) ;
-      //Serial.println(valPWM_g) ;  /* test out serial plotter */
       Serial.print("DEBUG STATEMENT: valPWM_g = ") ; Serial.println(valPWM_g) ;
       outputPWM(valPWM_g, pin10_PWM) ; // turn LED on
       break ;
@@ -298,6 +298,7 @@ int TickFct_LEDs(int state){
       Serial.println("DEBUG STATEMENT: offLED action") ;
       // remove bottom statement so binSearch wont be called every time
       //outputPWM(0, pin10_PWM) ;           // turn off LED (pin 10)
+      valPWM_g = analogRead(pinA0) ;  // update valPWM_g to test motor speed changes
       analogWrite(pin10_PWM, 0) ; // turn off LED (pin 10)
       break ;
     default:
@@ -309,16 +310,19 @@ int TickFct_LEDs(int state){
 
 /* State Machine 3 */
 int TickFct_servos(int state){
-  static unsigned short i = 0 ; ; // used to control motor for a set duration
+  static unsigned char i = 0 ; ; // used to control motor for a set duration
   
   switch(state){  // state transitions
     case SM3_init:
       Serial.println("DEBUG STATEMENT: SM3_init") ;
       state = SM3_turnOffServo ;
       
-      for(i = 0; i < 5000; i++){  // turn on motor 1A
+      // ready up motors
+      for(i = 0; i < 10; i++){  // turn on motor 1A and 2B to go forward
         digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
-        analogWrite(pin10_PWM, 255) ; //delay(5) ;
+        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+        outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ; // turn on motor
+        outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ; // turn on motor
       }
       break ;
     case SM3_turnOffServo:
@@ -344,18 +348,70 @@ int TickFct_servos(int state){
     case SM3_init:
       break ;
     case SM3_turnOffServo:
-      // turn of motors
-      digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+      #if 0
+        // turn off motors
+        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+      #endif
+
+      if(distTeensy_g > 25){  // object not in range yet
+        // go forwards
+        Serial.println("Forward") ;
+        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
+        digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+
+        outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
+        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ;
+      } else if(distTeensy_g < 15){  // object out of range
+        // go backwards 
+        Serial.println("Backwards") ;
+        digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
+
+        outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
+        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ; 
+      } else{   // object within range
+        // stay still
+        Serial.println("Still") ;
+        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+
+        outputPWM(0, MOTOR_1_PWM); delay(10) ;
+        outputPWM(0, MOTOR_2_PWM); delay(10) ;
+      }
+      
       break ;
     case SM3_turnOnServo:
       Serial.println("DEBUG STATEMENT: turnOnServo") ;
       /* equation for ADC_max to degrees: ADC_value/180 [degrees], so 
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
-      for(i = 0; i < 1000; i++){ // control motor for 255 ticks
-        digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
-        myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ;
-        //digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, LOW) ;  // turn off motor ... may remove
-      }
+      #if 0
+        for(i = 0; i < 100; i++){ // control motor (backwards)
+          digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
+          //myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ; // controls front motor
+          //myServo.write(90) ;
+          digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+          outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
+          outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ;
+        } delay(10) ;
+        
+        for(i = 0; i < 100; i++){  // control motor (forwards)
+          digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
+          //myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ; // controls front motor
+          //myServo.write(90) ;
+          outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
+  
+          digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+          outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ;
+        } delay(10) ;
+        
+        for(i = 0; i < 250; i++){  // steering direction
+          digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+          digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
+          outputPWM(90, MOTOR_1_PWM) ; delay(10) ;  // 1023 --> 90
+          outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
+        } delay(10) ;
+      #endif
       break ;
     default:
       break ;  
@@ -368,8 +424,8 @@ int TickFct_HC05(int state){
   unsigned char i, numBytes;
   unsigned char numOfPlant ;
   static unsigned char plantDecodeID = 0x00 ;
-  char arr[] = {} ;  // create empty array buffer
-  unsigned char chRecv = 0x00 ;
+  char arr[] = {} ;  // create empty array buffer from phone BT terminal
+  unsigned char chRecv = 0x00 ; // init char for Rx buffer
   const static unsigned char n = sizeof(plantDecoder)/sizeof(plantDecoder[0]) ;
 
   //const unsigned char testCase = 0x00 ; // basic unit test
@@ -382,7 +438,7 @@ int TickFct_HC05(int state){
       break ;
     case SM4_wait:
       Serial.println("DEBUG STATEMENT: SM4_wait") ;
-      delay(200) ;
+      delay(20) ;
       numBytes = BT.available() ;
       Serial.println("numBytes: "); Serial.println(numBytes) ;
       
@@ -425,14 +481,14 @@ int TickFct_HC05(int state){
     case SM4_wait:
       //numBytes = BT.available() ;
       //BT.print("DEBUG STATEMENT: test action\n") ;
-      delay(20) ;
+      //delay(20) ;
       digitalWrite(ledPin, HIGH) ;  /* turn off built-in LED if in state */
       break ;
     case SM4_disconnect:
       break ;
     case SM4_connect:
       digitalWrite(ledPin, LOW) ;
-      delay(100) ;
+      //delay(100) ;
 
       //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
@@ -447,16 +503,16 @@ int TickFct_HC05(int state){
         }
       #endif
       
-      // get first byte (plant number)
+      // read from Rx buffer
       while(numBytes > 0){
         chRecv = BT.read() ;  // read from buffer
         numBytes-- ;          // decrease count by 1
         
         plantDecodeID = chRecv & 0x03 ;  // find first 2 bits for plant ID
-        Serial.print("chRecv = "); Serial.println(chRecv, HEX) ;
+        //Serial.print("chRecv = "); Serial.println(chRecv, HEX) ;  // print char in serial monitor as hex val
         
         switch(plantDecodeID){  // enter plantID info
-          case 0x00:
+          case 0x00:  // plant 0
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
@@ -467,7 +523,7 @@ int TickFct_HC05(int state){
             #endif
             
             break ;
-          case 0x01:
+          case 0x01:  // plant 1
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
@@ -478,7 +534,7 @@ int TickFct_HC05(int state){
             #endif
             
             break ;
-          case 0x02:
+          case 0x02:  // plant 2
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
 
@@ -489,7 +545,7 @@ int TickFct_HC05(int state){
             #endif
             
             break ;
-          default:
+          default:  // plant not found
             Serial.println("DEBUG STATEMENT: PLANT_ID NOT FOUND") ;
             digitalWrite(ledPin, LOW) ;
             delay(100) ;
@@ -497,7 +553,6 @@ int TickFct_HC05(int state){
             delay(100) ;
             break ;
         }
-        //delay(1000) ;
       }
       Serial.print("Numbytes: "); Serial.println(numBytes) ;
       //delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
@@ -562,7 +617,6 @@ int TickFct_ultraSonic(int state){
       break ;
     case SM5_measure:
       Serial.println("DEBUG STATEMENT: SM5_measure") ;
-      //for(i = 0; i < sizeof(distanceArr)/sizeof(distanceArr[0]) ; i++){ // measure distance function call
       for(i = 0; i < n ; i++){ // measure distance function call
         distanceArr[i] = measureDistance(distanceArr) ;
         j++ ;
@@ -570,7 +624,7 @@ int TickFct_ultraSonic(int state){
       break ;
     case SM5_filter:
       
-      #if 1 // if statement used to print distanceArr values for analysis
+      #if 0 // if statement used to print distanceArr values for analysis
         Serial.println("distanceArr: ") ;
         for(i = 0; i < n; i++){
           Serial.println(distanceArr[i]) ;  
@@ -582,9 +636,8 @@ int TickFct_ultraSonic(int state){
       // call EMA filter function
       filterEMA(distanceArr, distanceArrEMA, K_MA) ;
       
-      #if 1 // use #if 0 to ignore statement during runtime
+      #if 0 // use #if 0 to ignore statement during runtime
         Serial.print("DEBUG STATEMENT: distanceArrEMA ") ;
-        //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){  // EMA function call
         for(i = 0; i < n_EMA; i++){  // EMA function call
           Serial.println(distanceArrEMA[i]) ;
         }
@@ -592,12 +645,10 @@ int TickFct_ultraSonic(int state){
       #endif
       
       // call cut off filter function
-      //cutOffFilter(distanceArrEMA, maxDist, sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0])) ;
       cutOffFilter(distanceArrEMA, maxDist, n_EMA) ;
       
       // print data array to serial monitor
-      #if 1     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
-        //for(i = 0; i < sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]); i++){
+      #if 0     // change to #if 0 to ignore the printing loop or #if 1 to go thru printing loop
         Serial.println("DEBUG STATEMENT: cutOffFilter array") ;
         for(i = 0; i < n_EMA; i++){
           Serial.println(distanceArrEMA[i]) ;
@@ -607,15 +658,19 @@ int TickFct_ultraSonic(int state){
 
       // call ascending values algo
       ascendSort(distanceArrEMA, n_EMA) ;
-      #if 1
+
+      // print ascending array
+      #if 0
         Serial.println("DEBUG STATEMENT: ascendSort") ;
+        Serial.print("sorted distance = \n") ;
         for(i = 0; i < n_EMA; i++){
           Serial.println(distanceArrEMA[i]) ;  
         }
+        delay(5000) ;
       #endif
 
       // print median value
-      #if 1
+      #if 0
         Serial.print("DEBUG STATEMENT: sorted arr median = ") ;
         Serial.println(distanceArrEMA[(n_EMA-1)/2]) ;
         delay(3000) ;
@@ -750,20 +805,24 @@ void setup() {
   pinMode(pin10_PWM, OUTPUT) ; /* potentiometer pin */
   analogWriteResolution(10) ; /* 10 bit PWM */
   pinMode(buttonPin, INPUT) ; /* button pin */
+  
+  // set up motors
   pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
   pinMode(MOTOR_1B_PIN, OUTPUT) ; // controls motor 1B
+  pinMode(MOTOR_2A_PIN, OUTPUT) ; // controls motor 2A
+  pinMode(MOTOR_2B_PIN, OUTPUT) ; // controls motor 2B
+  
+  pinMode(MOTOR_1_PWM, OUTPUT) ;  // sets up front motor PWM
+  pinMode(MOTOR_2_PWM, OUTPUT) ;  // sets up rear motor PWM
 
+  // set up ultrasonic sensor
   pinMode(echoPin, INPUT) ;   /* echo pin */
   pinMode(trigPin, OUTPUT) ;  /* trig pin */
   
+  // set up I2C
   Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
   Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
   Wire.begin(0x8) ;    /* I2C address */
-
-  //Serial.print("SDA: "); Serial.println(Wire.getSDA()) ;
-  //Serial.print("SCL: "); Serial.println(Wire.getSCL()) ;
-  //delay(2000) ;
-
   Wire.onReceive(event) ; /* call function when i2c gets data */
   
   // comment out until weight sensor is finished
@@ -786,10 +845,11 @@ void setup() {
 //  calibrate(); //start calibration procedure
 //  /* finish HX711 */
   
+  // set up servo
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
   delay(20) ; /* delay for 20 [ms] to complete period */
-  
+
   // myTimer.begin(TimerISR, tasksPeriodGCD) ; /* task scheduler set up */
   
   pinMode(ledPin, OUTPUT) ;
@@ -896,12 +956,12 @@ void loop() {
 */
 void outputPWM(unsigned int val, unsigned char pinNum){
   uint16_t valPWM ;   // gets return value from findNum
-  unsigned int arrSize = sizeof(arrPWM)/sizeof(arrPWM[0]) ; // gets size of array
+  unsigned int arrSize = sizeof(arrPWM)/sizeof(arrPWM[0]) ; // size of array
   
-//  Serial.println("DEBUG STATEMENT: Entering findNum function") ;
-  valPWM = findNum(arrPWM, val, arrSize) ;   // arguments for findNum are: (array, inputValue, lowestIndex, highestIndex)
-  valPWM = findNumBinSearch(arrPWM, val, 0, arrSize - 1, arrSize) ;
-  analogWrite(pinNum, (int)valPWM) ; // pin10_PWM --> pinNum
+  // Serial.println("DEBUG STATEMENT: Entering findNum function") ;
+  valPWM = findNum(arrPWM, val, arrSize) ;   // arguments for findNum are: (array, inputValue, n)
+  
+  analogWrite(pinNum, (int)valPWM) ;
 }
 
 /* 
@@ -933,63 +993,6 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
 }
 
 /* 
-  Function name: findNumBinSearch
-  Purpose: Finds a desired number using binary search
-  Details: The function uses binary search to find the desired value in a LUT array
-
-  Parameters:
-      NAME            Details
-      [In] arr[]      - array being used to search
-      [In] val        - val that is being searched
-      [In] low        - lowest index of array
-      [In] high       - highest index of array
-      [In] arrCap     - max size of array
-      
-  Return Value:
-    arr[mid]
-*/
-uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t high, uint16_t arrCap){
-  uint16_t mid ;  // finds midpoint of arr
-  Serial.println("DEBUG STATEMENT: findNumBinSearch") ;
-  Serial.print("high, low = "); Serial.print(high); Serial.print(" "); Serial.println(low);
-
-  if(high > low){ // start binary search
-    if(val > arr[arrCap - 1]){  // val is greater than highest arr val
-      Serial.println("DEBUG STATEMENT: val exceeds max") ;
-      return 500 ;  
-    }
-    mid = ((high - low)/2) + low ;
-
-    if(val > arr[mid]){ // right side of arr  (val > arr[mid])
-      if(mid+1 > arrCap){ // check if (mid + 1) exceeds arr range
-        Serial.print("DEBUG STATEMENT: arr OOR\n");
-        return 999 ;
-      } else{
-          if(arr[mid+1] >= val){  //  (arr[mid] < val <= arr[mid+1])
-            return arr[mid] ;  
-          } else{
-            return findNumBinSearch(arr, val, mid+1, high, arrCap) ;
-          }
-      }
-    } else{   // (val < arr[mid]) left side of arr
-        if(mid-1 < 0){  // check if (mid - 1) goes under arr range
-          Serial.print("DEBUG STATEMENT: arr OOR\n") ;
-          return 999 ;  
-        } else{
-          if(arr[mid-1] <= val){  //  (arr[mid-1] <= val < arr[mid])
-            return arr[mid] ;  
-          } else{
-            return findNumBinSearch(arr, val, low, mid-1, arrCap) ;
-          }
-        }
-    }
-  } else{ // low > high
-    Serial.print("DEBUG STATEMENT: low > high\n") ;  
-    return 0 ;
-  } 
-}
-
-/* 
   Function name: decodePlantVal
   Purpose: Decodes the plant's moisture sensor data
   Details: Uses 2 arrays to find the encoded data value from the plant.
@@ -1005,13 +1008,13 @@ uint16_t findNumBinSearch(uint16_t arr[], uint16_t val, uint16_t low, uint16_t h
 */
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar){
   unsigned int i ;
-  Serial.println("DEBUG STATEMENT: decodePlantVal") ;
+  //Serial.println("DEBUG STATEMENT: decodePlantVal") ;
   //delay(2000) ;
-  Serial.print("decodeChar(HEX) = "); Serial.println(decodeChar, HEX);
+  //Serial.print("decodeChar(HEX) = "); Serial.println(decodeChar, HEX);
   
   for(i = 0; i < n; i++){
     if(decodeChar == arrCompressedData[i]){
-      Serial.print("DEBUG STATEMENT: arrPlantVal = "); Serial.println(arrPlantVal[i]) ;
+      //Serial.print("DEBUG STATEMENT: arrPlantVal = "); Serial.println(arrPlantVal[i]) ;
       return arrPlantVal[i] ;
     }  
   }
@@ -1060,7 +1063,7 @@ unsigned long measureDistance(unsigned long *arr){
 */
 void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
   unsigned char i = 0 ; // count
-  unsigned long *ptr = arrEMA ;
+  //unsigned long *ptr = arrEMA ;
 
   Serial.println("DEBUG STATEMENT: filterEMA") ;
 //  Serial.print("DEBUG STATEMENT: sizeof arr ") ; Serial.println(sizeof(arr)/sizeof(arr[0])) ;
@@ -1109,9 +1112,6 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n){
     //Serial.println("DEBUG STATEMENT: cutOffFilter") ;
     for(i = 0; i < n; i++){ // begin loop
       if(arr[i] > maxDist || arr[i] == 0){ // determine if index's value exceeds max distance
-        //Serial.print("DEBUG STATEMENT: value exceeds max distance ") ;
-        //Serial.println(arr[i]) ;
-        //delay(1000) ; // 1000 [ms]
         arr[i] = maxDist ;  
       }  
     }
@@ -1279,6 +1279,24 @@ void ascendSort(unsigned long arr[], unsigned char n){
       }
       swap(&arr[indx], &arr[i]) ;
     }   
+  }
+}
+
+/* 
+  Function name: bubbleSortPlant
+  Purpose: TODO
+  Details: TODO
+
+  Return value:
+    None
+*/
+void bubbleSortPlant(){
+  static unsigned char i, j, tempVal ;
+
+  for(i = 0; i < NUM_PLANTS; i++){
+    for(j = 0; j < NUM_PLANTS;j++){
+      //if()  
+    }
   }
 }
 /* end functions */
