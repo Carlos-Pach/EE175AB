@@ -24,7 +24,7 @@ void loop()
 {
   // power on the BT
   digitalWrite(bt_power, HIGH);
-  delay(20000); // bluetooth should connect by this time
+  delay(30000); // bluetooth should connect by this time
 
   potVal = analogRead(A7);
   // pot reading between 750 and 0, if we get 75% = 562
@@ -40,13 +40,8 @@ void loop()
   mySerial.println(myVal, HEX);
   myVal = 0x00;
   
-  delay(10000);
+  delay(100);
   digitalWrite(bt_power, LOW);
-  delay(20000); // the master needs time to reset
-  delay(20000); // this is when the second slave should be active
-  delay(10000);
-  delay(20000); // reset
-  delay(20000); // slave 3
-  delay(10000);
-  delay(20000); // reset
+  
+  delay(120200);
 }
