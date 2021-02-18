@@ -32,6 +32,10 @@ import sys
 import time
 from threading import Thread
 import importlib.util
+from smbus2 import SMBus, i2c_msg
+
+addr = 0x8
+bus = SMBus(1)
 
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
@@ -195,13 +199,13 @@ time.sleep(1)
 #KNOWN_DISTANCE = 24.0
 # initialize the known object width, which in this case, the piece of
 # paper is 12 inches wide
-KNOWN_WIDTH = 11.0
+KNOWN_WIDTH = 2.547
 # load the furst image that contains an object that is KNOWN TO BE 2 feet
 # from our camera, then find the paper marker in the image, and initialize
 # the focal length
 #ret, image = cap.read()
 #marker = find_marker(image)
-focalLength = 543.45
+focalLength = 1170.6
 #(marker[1][0] * KNOWN_DISTANCE) / KNOWN_WIDTH
 
 
@@ -260,25 +264,28 @@ while(True):
     cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
 
     # All the results have been drawn on the frame, so it's time to display it.
-    cv2.imshow('Object detector', frame)
+
 
     # Calculate framerate
     t2 = cv2.getTickCount()
     time1 = (t2-t1)/freq
     frame_rate_calc= 1/time1
     
-    image = frame1.copy()
-    marker = find_marker(image)
+
+    marker = find_marker(frame)
     if marker == 0:
-        cv2.putText(image,'Target Lost',(50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_4)
+        inches = 0
+        cv2.putText(frame, "%.2fft" % (0 / 12),(frame.shape[1] - 200, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
     else:
         inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
         # draw a bounding box around the image and display it
         box = cv2.cv.BoxPoints(marker) if imutils.is_cv2() else cv2.boxPoints(marker)
         box = np.int0(box)
-        cv2.drawContours(image, [box], -1, (0, 255, 0), 2)
-        cv2.putText(image, "%.2fft" % (inches / 12),(image.shape[1] - 200, image.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
-    cv2.imshow("image", image)
+        cv2.drawContours(frame, [box], -1, (0, 255, 0), 2)
+        cv2.putText(frame, "%.2fcm" % (inches * 2.54),(frame.shape[1] - 200, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
+    cv2.imshow("image", frame)
+    newim = int(inches * 2.54)
+    bus.write_byte(addr, newim)
     if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 cap.release()
