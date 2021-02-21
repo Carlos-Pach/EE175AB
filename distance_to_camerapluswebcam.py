@@ -207,7 +207,8 @@ KNOWN_WIDTH = 2.547
 #marker = find_marker(image)
 focalLength = 1170.6
 #(marker[1][0] * KNOWN_DISTANCE) / KNOWN_WIDTH
-
+newim = 0
+pastim = 0
 
 # loop over the images
 while(True):
@@ -279,13 +280,20 @@ while(True):
     else:
         inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
         # draw a bounding box around the image and display it
+        newim = int(inches * 2.54)
+        if pastim == 0:
+            pastim = newim
+        else:
+            if abs(pastim - newim) < 5:
+                pastim = newim
+            else:
+                pastim = pastim
         box = cv2.cv.BoxPoints(marker) if imutils.is_cv2() else cv2.boxPoints(marker)
         box = np.int0(box)
         cv2.drawContours(frame, [box], -1, (0, 255, 0), 2)
-        cv2.putText(frame, "%.2fcm" % (inches * 2.54),(frame.shape[1] - 200, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
+        cv2.putText(frame, "%.2fcm" % (pastim),(frame.shape[1] - 200, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
     cv2.imshow("image", frame)
-    newim = int(inches * 2.54)
-    bus.write_byte(addr, newim)
+    bus.write_byte(addr, pastim)
     if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 cap.release()
