@@ -27,6 +27,7 @@
 #include <i2c_t3.h>
 #include <SoftwareSerial.h>
 #include <HX711_ADC.h>
+#include <EEPROM.h>
 
 // define macros
 #define pinA0         0     // analog  (pin 14)
@@ -65,6 +66,10 @@ typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
 
+typedef struct controllerPI{  // PI controller value struct
+  uint16_t prop ;
+  uint16_t integ ;
+} tPI ;
 
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
@@ -72,6 +77,7 @@ typedef struct PlantData{
   int desiredVal ;   // desired water level for respective plants
   PLANT_PRIORITY priority ;   // determines priority of plants
   Bool isWatered ;   // determine if plant has already been watered
+  tPI valPI ;   // proportional and integ members from controllerPI struct
 } tPlantData ;
 
 tPlantData plants[NUM_PLANTS] ; // number of plants to water
@@ -188,15 +194,19 @@ const uint16_t plantVals[] = {  32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 3
                                 800, 832, 864, 896, 928, 960, 992, 1023
                               } ;
 
-/* declare global variables */
+// declare global variables
 Bool buttonPressed_g = False;    // 0 - not pressed, 1 - pressed
-Bool turnOnGun = False ;  // 0 - gun is turned off, 1 - gun is turned on
-Bool waterMeasured = True ; // 0 - not measured yet, 1 - already measured
-Bool stopSig = True ;    // 0 - 
+Bool turnOnGun_g = False ;  // 0 - gun is turned off, 1 - gun is turned on
+Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
+Bool stopSig_g = False ;    // determines when to stop water nozzle
+
 volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g ;
 unsigned int valPWM_g ;
-/* values for PID system ... can be changed as testing continues */
+const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
+long t ;  // time elapsed for LoadCell
+
+// values for PID system ... can be changed as testing continues
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
 const int ki = 1 ;  // ki - integral value for PID sys (0.001)
 const int kd = 3000 ;  // kd - derivative value for PID sys (3.0)
@@ -354,7 +364,7 @@ int TickFct_servos(int state){
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
       #endif
 
-      if(distTeensy_g > 25){  // object not in range yet
+      if(distTeensy_g > 50){  // object not in range yet
         // go forwards
         Serial.println("Forward") ;
         digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
@@ -362,14 +372,14 @@ int TickFct_servos(int state){
 
         outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
         outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ;
-      } else if(distTeensy_g < 15){  // object out of range
+      } else if(distTeensy_g < 30){  // object out of range
         // go backwards 
         Serial.println("Backwards") ;
         digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
 
         outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
-        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ; 
+        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ;
       } else{   // object within range
         // stay still
         Serial.println("Still") ;
@@ -412,11 +422,25 @@ int TickFct_servos(int state){
           outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
         } delay(10) ;
       #endif
+
+      // control steering
+      for(i = 0; i < 10; i++){
+        digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
+        outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
+        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+        outputPWM(0, MOTOR_2_PWM); delay(5) ;
+      }
+      for(i = 0; i < 10; i++){
+        digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
+        outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
+        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+        outputPWM(0, MOTOR_2_PWM); delay(5) ;
+      }
       break ;
     default:
-      break ;  
+      break ;
   }
-  return state ;  
+  return state ;
 }
 
 /* State Machine 4 */
@@ -547,7 +571,7 @@ int TickFct_HC05(int state){
             break ;
           default:  // plant not found
             Serial.println("DEBUG STATEMENT: PLANT_ID NOT FOUND") ;
-            digitalWrite(ledPin, LOW) ;
+            //digitalWrite(ledPin, LOW) ;
             delay(100) ;
             digitalWrite(ledPin, HIGH) ; // light up built-in LED if in default
             delay(100) ;
@@ -566,6 +590,17 @@ int TickFct_HC05(int state){
         }
         delay(2000) ;
       #endif
+
+      //only enter when all plants have sent data at least once
+      if((plants[0].data > 0) && (plants[1].data > 0) && (plants[0].data > 0)){
+        // sort plant priority
+        bubbleSortPlant() ;
+        // calculate prop and integ vals for plants
+        for(i = 0; i < NUM_PLANTS; i++){
+          plants[i].valPI.prop = calculateError(plants[i].desiredVal, plants[i].data) ;
+          plants[i].valPI.integ = calculateInteg(plants[i].valPI.prop, plants[i].valPI.integ) ;
+        }
+      }
       
       digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
       delay(100) ;
@@ -587,7 +622,7 @@ int TickFct_ultraSonic(int state){
   static unsigned long distanceArrEMA[n - K_MA + 1] = { 0 } ; /* smoothed out array, 4 is the MA value */ 
   const unsigned char n_EMA = sizeof(distanceArrEMA)/sizeof(distanceArrEMA[0]) ;  // size of EMA filtered array
   
-  const unsigned char maxDist = 100 ;   /* maximum distance measured in [cm] */
+  const unsigned char maxDist = 150 ;   // maximum desired distance measured in [cm]
   
   switch(state){
     case SM5_init:
@@ -673,7 +708,7 @@ int TickFct_ultraSonic(int state){
       #if 0
         Serial.print("DEBUG STATEMENT: sorted arr median = ") ;
         Serial.println(distanceArrEMA[(n_EMA-1)/2]) ;
-        delay(3000) ;
+        delay(5000) ;
       #endif
       distTeensy_g = distanceArrEMA[(n_EMA-1)/2] ;  // return approx distance from teensy
       
@@ -727,18 +762,20 @@ int TickFct_waterGun(int state){
       state = SM7_wait ;
       break ;
     case SM7_wait:
-//      if(turnOnGun == False){ // stay in wait state
+//      if(turnOnGun_g == False){ // stay in wait state
 //        state = SM7_wait ;  
-//      } else if(!(turnOnGun == False)){ // go to activate gun state
+//      } else if(!(turnOnGun_g == False)){ // go to activate gun state
 //        state = SM7_activateGun ;  
 //      }
       // use this statement until weight sensor is finished
-      if(1){
-        state = SM7_wait ;
+      if(buttonPressed_g == True){
+        state = SM7_activateGun ;
+      } else{
+        state = SM7_wait ;  
       }
       break ;
     case SM7_activateGun:
-      if(cnt < 5){  // stay in activate gun state
+      if(buttonPressed_g == True){  // stay in activate gun state
         state = SM7_activateGun ;  
       } else if(!(cnt < 5)){  // go to deactivateGun state
         state = SM7_deactivateGun ;  
@@ -752,7 +789,7 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_measureWeight:
-      if(waterMeasured == False){ // stay in measuring state
+      if(waterMeasured_g == False){ // stay in measuring state
         state = SM7_measureWeight ;  
       } else{           // go to wait state
         state = SM7_wait ;  
@@ -764,16 +801,18 @@ int TickFct_waterGun(int state){
   }
   switch(state){  // state actions
     case SM7_init:
-      waterMeasured = False ;
+      waterMeasured_g = False ;
       cnt = 0 ;
       break ;
     case SM7_wait:
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
+      //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
       cnt = 0 ;
       break ;
     case SM7_activateGun:
       Serial.println("DEBUG STATEMENT: SM7_activateGun") ;
       // function to squirt the water gun
+      myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
       
       cnt++ ; // increase cnt
       
@@ -785,7 +824,7 @@ int TickFct_waterGun(int state){
     case SM7_measureWeight:
       Serial.println("DEBUG STATEMENT: SM7_measureWeight") ;
       // function to measure water tank capacity
-      waterMeasured = True ;
+      waterMeasured_g = True ;
       break ;
     default:
       break ;
@@ -801,10 +840,10 @@ int TickFct_waterGun(int state){
 /* main code */
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(BAUD_RATE) ;     /* serial monitor set up*/
-  pinMode(pin10_PWM, OUTPUT) ; /* potentiometer pin */
-  analogWriteResolution(10) ; /* 10 bit PWM */
-  pinMode(buttonPin, INPUT) ; /* button pin */
+  Serial.begin(BAUD_RATE) ;     // serial monitor set up
+  pinMode(pin10_PWM, OUTPUT) ;  // potentiometer pin
+  analogWriteResolution(10) ;   // 10 bit PWM
+  pinMode(buttonPin, INPUT) ;   // button pin
   
   // set up motors
   pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
@@ -814,44 +853,53 @@ void setup() {
   
   pinMode(MOTOR_1_PWM, OUTPUT) ;  // sets up front motor PWM
   pinMode(MOTOR_2_PWM, OUTPUT) ;  // sets up rear motor PWM
+  
 
   // set up ultrasonic sensor
-  pinMode(echoPin, INPUT) ;   /* echo pin */
-  pinMode(trigPin, OUTPUT) ;  /* trig pin */
+  pinMode(echoPin, INPUT) ;   // echo pin
+  pinMode(trigPin, OUTPUT) ;  // trig pin
+  
   
   // set up I2C
-  Wire.setSDA(i2cPinSDA) ;  /* sets up SDA pin */
-  Wire.setSCL(i2cPinSCL) ;  /* sets up SCL pin */
-  Wire.begin(0x8) ;    /* I2C address */
-  Wire.onReceive(event) ; /* call function when i2c gets data */
+  Wire.setSDA(i2cPinSDA) ;  // sets up SDA pin
+  Wire.setSCL(i2cPinSCL) ;  // sets up SCL pin
+  Wire.begin(0x8) ;    // I2C address
+  Wire.onReceive(event) ; // call function when i2c gets data
   
-  // comment out until weight sensor is finished
-//  /* set up HX711 */
-//  LoadCell.begin() ;  /* load cell set up */
-//  Bool tareHX711 = False ;  /* set to false if tare should not be conducted next step */
-//  float calibrationValue ;  // calibration value
-//  calibrationValue = 696.0 ;  // uncomment if calibrationValue is set in file
-//  const unsigned int stabilizingTime = 2000 ; /* time to stabilize */
-//  LoadCell.start(stabilizingTime, tareHX711) ;  /* check if correct pins were used */
-//  
-//  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
-//    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
-//    while (1);
-//  } else {  // set up pins were correct 
-//    LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
-//    Serial.println("Startup is complete");
-//  }
-//  while (!LoadCell.update());
-//  calibrate(); //start calibration procedure
-//  /* finish HX711 */
+  
+  // set up HX711
+  Serial.println("Begin loadcell") ; // ------- debug only statement -------
+  LoadCell.begin() ;  // load cell set up
+  Bool tareHX711 = False ;  // set to false if tare should not be conducted next step
+  float calibrationValue ;  // calibration value
+  calibrationValue = 696.0 ;  // uncomment if calibrationValue is set in file
+  EEPROM.get(calValAddrEEPROM_g, calibrationValue) ;  // parameters: addr of EEPROM, calibration value
+  const unsigned int stabilizingTime = 2000 ; // time to stabilize
+  
+  Serial.println("Starting loadcell") ;   // -------- debug only statement ------
+  LoadCell.start(stabilizingTime, tareHX711) ;  // check if correct pins were used
+  Serial.println("Starting calibration") ;  // -------- debug only statement -------
+  LoadCell.setCalFactor(calibrationValue) ; // set calibration
+  
+  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
+    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
+  } else {  // set up pins were correct 
+    LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
+    Serial.println("Startup is complete");
+  }
+  while (!LoadCell.update()); // wait until load cell updates
+  calibrate(); //start calibration procedure
+  delay(5000) ;
+  // finish HX711
+  
   
   // set up servo
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
-  delay(20) ; /* delay for 20 [ms] to complete period */
-
-  // myTimer.begin(TimerISR, tasksPeriodGCD) ; /* task scheduler set up */
+  delay(20) ; // delay for 20 [ms] to complete period
   
+  
+  // set up BT module pins
   pinMode(ledPin, OUTPUT) ;
   pinMode(RxPin, INPUT) ;
   pinMode(TxPin, OUTPUT) ;
@@ -859,7 +907,7 @@ void setup() {
   BT.println("Connection established") ;
 
   
-  /* initialize scheduler */
+  // initialize scheduler
   unsigned char i = 0 ;
   
   tasks[i].state = SM1_init ;
@@ -917,25 +965,31 @@ void setup() {
   plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
   plants[0].priority = low ;
+  plants[0].valPI.prop = 0 ;
+  plants[0].valPI.integ = 0 ;
 
   plants[1].plantNum = Plant_1 ;
   plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
   plants[1].priority = low ;
+  plants[1].valPI.prop = 0 ;
+  plants[1].valPI.integ = 0 ;
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
   plants[2].priority = low ;
+  plants[2].valPI.prop = 0 ;
+  plants[2].valPI.integ = 0 ;
   
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   
-  /* Put sleep function here */
+  // Put sleep function here
   TimerISR() ;
 
 }
@@ -949,6 +1003,7 @@ void loop() {
     Description: Function acts as intermediate between main() and findNum()
     Purpose: The function is used to get a return value from findNum() and 
              output the value into analogWrite()
+    
     Parameters:
               Inputs: val, pinNum
               Outputs: none
@@ -969,6 +1024,7 @@ void outputPWM(unsigned int val, unsigned char pinNum){
     Description: Function finds nearest value of an input in a sorted array
     Purpose: The function is used to quickly find and return the nearest value of an input in 
              a pre-made array of sorted values. Linear is used to shorten search time.
+    
     Parameters:
              Inputs: arr[], actualVal, low, high
              Outputs: arr[mid]
@@ -997,6 +1053,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
   Purpose: Decodes the plant's moisture sensor data
   Details: Uses 2 arrays to find the encoded data value from the plant.
            Returns the decoded value as a decimal.
+  
   Parameters:
         Name                        Details
         [In] arrCompressedData      - encoded array
@@ -1027,14 +1084,16 @@ uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], ui
   Purpose: measures distance from HC-SR04 ultrasonic sensor
   Details: Calculates distance between an object and the 
            ultrasonic sensor. 
+  
   Parameters:
       Name              Details
       [In] *arr         - fills an array with distance values
-  TODO: N/A
+  Notes: 
+    equation to find maxTime: x = maxDistance * (10^6)/(3.43*10^4) for maxDistance is user decided
 */
 unsigned long measureDistance(unsigned long *arr){
   const unsigned char distanceConst = 34 ;  /* (duration * 34 / 1000) / 2*/
-  const int maxTime = 3100 ;    /* max time for ultrasonic sensor to retrieve data past 100 [cm] */
+  const int maxTime = 4500 ;    /* max time for ultrasonic sensor to retrieve data past 150 [cm] */
 
   /* clear trig pin */
   digitalWrite(trigPin, LOW) ;
@@ -1052,6 +1111,7 @@ unsigned long measureDistance(unsigned long *arr){
   Purpose: Smooths out electrical signals from peripherals
   Details: Uses exponential moving average to smooth out noise in order to
            get more accurate data. N = 4
+  
   Parameters:
       Name            Details
       [In] arr[]       - array with filled values
@@ -1147,6 +1207,7 @@ int32_t calculateError(int desiredVal, int approxVal){
         [In] errorVal       - error value from calculateError
         [In] integralVal    - previous integral value
         [Out] integVal      - sum of error and previous integral val
+  
   Return value:
     integralVal
   TODO:
@@ -1163,8 +1224,9 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
            to obtain all information via I2C.
 
   Parameters:
-        Name            Details
-        [In] dataI2C    - data being read from I2C bus
+      Name            Details
+      [In] dataI2C    - data being read from I2C bus
+  
   Return Value:
     None
   TODO:
@@ -1195,47 +1257,72 @@ void event(void){
 */
 void calibrate(void){
   // local vars
-  static Bool resumeCal = False ;
-  static long t ; // time in [ms]
+  static Bool newDataReady = False ;
   float knownMass = 0 ;   // known mass of object ... may change?
-  const int intervalTime = 0 ;
-  static const float minimumMass ;  // minimum weight for water tank
+  const unsigned char intervalTime = 0 ;
+  //static const float minimumMass ;  // minimum weight for water tank
   
-//  while(resumeCal == False){  // get status of tare
+//  while(newDataReady == False){  // get status of tare
 //    LoadCell.update() ;
 //    if(LoadCell.getTareStatus()){
-//      resumeCal = True ;  
+//      newDataReady = True ;  
 //      Serial.println("DEBUG STATEMENT: tare complete") ;
 //    }
 //  }
 //
-//  resumeCal = False ;
+//  newDataReady = False ;
 //
-//  while(resumeCal == False){
+//  while(newDataReady == False){
 //    LoadCell.update() ;
 //  }
 //
 //  LoadCell.refreshDataSet() ;
 //  float newCalibrationData = LoadCell.getNewCalibration(knownMass) ;
+//
+//  if(LoadCell.update()){
+//    newDataReady = True ;  
+//  }
+//  if(newDataReady == True){
+//    if(millis() + t > intervalTime){
+//      float i = LoadCell.getData() ;  // var used to print to serial monitor
+//      Serial.print("DEBUG STATEMENT: weight = "); Serial.println(i) ; // comment out when no longer needed
+//      newDataReady = True ;
+//      t = millis() ;
+//      if(i > minimumMass){  // measured mass is above minimum water required
+//        stopSig_g = True ;    // do not send stop signal 
+//      } else{
+//        stopSig_g = False ;  
+//      }
+//    }
+//  }
+//
+//  // more to finish (?)
 
-  if(LoadCell.update()){
-    resumeCal = True ;  
-  }
-  if(resumeCal == True){
-    if(millis() + t > intervalTime){
-      float i = LoadCell.getData() ;  // var used to print to serial monitor
-      Serial.print("DEBUG STATEMENT: weight = "); Serial.println(i) ; // comment out when no longer needed
-      resumeCal = True ;
-      t = millis() ;
-      if(i > minimumMass){  // measured mass is above minimum water required
-        stopSig = True ;    // do not send stop signal 
-      } else{
-        stopSig = False ;  
-      }
+    if(LoadCell.update()){
+      newDataReady = True ;
+      Serial.println("LoadCell updated") ; 
+    } else{
+      Serial.println("LoadCell not updated") ;  
     }
-  }
 
-  // more to finish (?)
+    if(newDataReady == True){
+      if(millis() > (t + (float)intervalTime)){
+        float i = LoadCell.getData() ;
+        Serial.print("LoadCell data = "); Serial.println(i) ;
+        newDataReady = False ;
+        t = millis() ;
+        if(i >= 0){
+          stopSig_g = True ;  
+        } else{
+          stopSig_g = False ;  
+        }
+      }  
+    } else{
+      Serial.println("newDataReady is not ready") ;  
+    }
+
+    Serial.print("stopSig_g = "); Serial.println(stopSig_g) ;
+    Serial.println("Exiting calibration") ;
 }
 
 /* 
@@ -1244,7 +1331,10 @@ void calibrate(void){
   Details: Used in sorting algos to swap values using pointers
 
   Paramters:
-    TODO
+    Name                Details
+    [In] *p1            - pointer to array index to be swapped
+    [In] *p2            - pointer to array index to be swapped
+  
   Return value:
     None
 */
@@ -1258,11 +1348,14 @@ void swap(unsigned long *p1, unsigned long *p2){
 
 /* 
   Function name: ascendSort
-  Purpose: TODO
-  Details: TODO
+  Purpose: Sorts an array with ascending values
+  Details: Sorts a non-sorted array from smallest values to greatest
 
   Parameters:
-    TODO
+    Name                  Details
+    [In] arr              - array to be sorted
+    [In] n                - size of array
+    
   Return value:
     None
 */
@@ -1284,18 +1377,27 @@ void ascendSort(unsigned long arr[], unsigned char n){
 
 /* 
   Function name: bubbleSortPlant
-  Purpose: TODO
-  Details: TODO
+  Purpose: Sorts plant priority for which plant has to be watered first
+  Details: Compares the ratio of current plant data and its desired data
+           to the next plant being compared
 
+  Parameters:
+    None
+    
   Return value:
     None
 */
-void bubbleSortPlant(){
+void bubbleSortPlant(void){
   static unsigned char i, j, tempVal ;
+  Serial.println("DEBUG STATEMENT: bubbleSort") ;
 
-  for(i = 0; i < NUM_PLANTS; i++){
-    for(j = 0; j < NUM_PLANTS;j++){
-      //if()  
+  for(i = 0; i < (NUM_PLANTS - 1); i++){
+    for(j = 0; j < (NUM_PLANTS - i - 1); j++){
+      if(plants[j].data/(float)(plants[j].desiredVal) < plants[j+1].data/(float)(plants[j+1].desiredVal)){  // compare plant data/desiredVal ratio
+          tempVal = plants[j].priority ;
+          plants[j].priority = plants[j+1].priority ;
+          plants[j+1].priority = tempVal ;  
+      }  
     }
   }
 }
