@@ -870,7 +870,7 @@ void setup() {
   // set up HX711
   Serial.println("Begin loadcell") ; // ------- debug only statement -------
   LoadCell.begin() ;  // load cell set up
-  Bool tareHX711 = False ;  // set to false if tare should not be conducted next step
+  Bool tareHX711 = True ;  // set to false if tare should not be conducted next step
   float calibrationValue ;  // calibration value
   calibrationValue = 696.0 ;  // uncomment if calibrationValue is set in file
   EEPROM.get(calValAddrEEPROM_g, calibrationValue) ;  // parameters: addr of EEPROM, calibration value
@@ -887,7 +887,7 @@ void setup() {
     LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
     Serial.println("Startup is complete");
   }
-  while (!LoadCell.update()); // wait until load cell updates
+  //while (!LoadCell.update()); // wait until load cell updates
   calibrate(); //start calibration procedure
   delay(5000) ;
   // finish HX711
