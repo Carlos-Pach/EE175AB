@@ -98,7 +98,10 @@ def find_marker(image):
     
 def distance_to_camera(knownWidth, focalLength, perWidth):
         # compute and return the distance from the maker to the camera
-        return (knownWidth * focalLength) / perWidth
+        if perWidth == 0:
+            return 0
+        else:
+            return (knownWidth * focalLength) / perWidth
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
@@ -291,7 +294,7 @@ while(True):
         box = cv2.cv.BoxPoints(marker) if imutils.is_cv2() else cv2.boxPoints(marker)
         box = np.int0(box)
         cv2.drawContours(frame, [box], -1, (0, 255, 0), 2)
-        cv2.putText(frame, "%.2fcm" % (pastim),(frame.shape[1] - 200, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
+        cv2.putText(frame, "%.2fcm" % (pastim),(frame.shape[1] - 300, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
     cv2.imshow("image", frame)
     bus.write_byte(addr, pastim)
     if cv2.waitKey(1) & 0xFF == ord('q'):
