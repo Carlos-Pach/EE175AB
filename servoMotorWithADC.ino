@@ -30,15 +30,16 @@
 #include <EEPROM.h>
 
 // define macros
-#define pinA0         0     // analog  (pin 14)
-#define RxPin         0     // pin 0 (digital 0)
-#define TxPin         1     // pin 1 (digital 1)
+#define pinA0         0     // analog read (pin 14)
+#define RxPin         0     // RX1 (pin 0/digital)
+#define TxPin         1     // TX1 (pin 1/digital)
 #define trigPin       2     // trigger pin (pin 2)
 #define echoPin       3     // echo pin (pin 3)
 #define HX711_DOUT    4     // HX711 dout pin (pin 4)
 #define HX711_SCK     5     // HX711 sck pin (pin 5)
 #define MOTOR_1_PWM   6     // Motor 1 PWM pin (pin 6)
-#define servoPin      9     // pin 9
+#define DIAGNOSE_LED   8     // startup code LED (pin 8)
+#define servoPin      9     // servo (pin 9)
 #define pin10_PWM     10    // pin 10 (PWM)
 #define MOTOR_1A_PIN  11    // motor 1A pin (pin 11)
 #define MOTOR_1B_PIN  12    // motor 1B pin (pin 12)
@@ -49,13 +50,15 @@
 #define MOTOR_2_PWM   20     // PWM motor 2 pin (pin 20)
 #define MOTOR_2B_PIN  21    // motor 2B pin (pin 21)
 #define MOTOR_2A_PIN  22    // motor 2A pin (pin 22)
+// Pins not used:
+// 7, 8, 16-17, 23
 
 
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
 #define TASKS_NUM     7     // number of tasks
 #define BAUD_RATE     38400  // baud rate for serial
-#define BT_BAUD_RATE  9600  // baud rate for BT (HC-06 is 9600 by default)
+#define BT_BAUD_RATE  38400  // baud rate for BT (HC-06 is 9600 by default) ... HC-05 38400 BAUD
 
 Servo myServo ;
 SoftwareSerial BT(RxPin, TxPin) ;
@@ -201,10 +204,11 @@ Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig_g = False ;    // determines when to stop water nozzle
 
 volatile unsigned char distRPi_g ;  // distance calculated by RPi
-static unsigned long distTeensy_g ;
-unsigned int valPWM_g ;
+static unsigned long distTeensy_g ; // distance calculated by Teensy
+unsigned int valPWM_g ; // PWM output value
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
 long t ;  // time elapsed for LoadCell
+const int carVeloc_g = arrPWM[2] ;  // velocity of car (can be changed later)
 
 // values for PID system ... can be changed as testing continues
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -222,7 +226,7 @@ void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;
 int32_t calculateError(int desiredVal, int approxVal) ;  // function that calculates error for PI sys
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
 void event(void) ;  // i2c event when getting data
-void calibrate(void) ;
+void calibration(void) ;
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar) ;  // returns decoded plant val (in dec)
 void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addresses
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
@@ -370,16 +374,16 @@ int TickFct_servos(int state){
         digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
         digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
 
-        outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
-        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ;
+        outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ; // valPWM_g --> carVeloc_g
+        outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
       } else if(distTeensy_g < 30){  // object out of range
         // go backwards 
         Serial.println("Backwards") ;
         digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
 
-        outputPWM(valPWM_g, MOTOR_1_PWM); delay(10) ;
-        outputPWM(valPWM_g, MOTOR_2_PWM); delay(10) ;
+        outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
+        outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
       } else{   // object within range
         // stay still
         Serial.println("Still") ;
@@ -540,7 +544,7 @@ int TickFct_HC05(int state){
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_0") ;
               Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
               Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
@@ -551,7 +555,7 @@ int TickFct_HC05(int state){
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_1") ;
               Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
               Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
@@ -562,7 +566,7 @@ int TickFct_HC05(int state){
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
 
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_2") ;
               Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
               Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
@@ -579,7 +583,7 @@ int TickFct_HC05(int state){
         }
       }
       Serial.print("Numbytes: "); Serial.println(numBytes) ;
-      //delay(200) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
+      delay(3000) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
       
       /* print BT buffer to serial monitor */
       #if 0
@@ -602,8 +606,8 @@ int TickFct_HC05(int state){
         }
       }
       
-      digitalWrite(ledPin, HIGH) ; /* light up built-in LED if in state */
       delay(100) ;
+      digitalWrite(ledPin, HIGH) ; // light up built-in LED if in state
       break ;
     default:
       break ;
@@ -740,8 +744,8 @@ int TickFct_dataFromRPi(int state){
       break ;
     case SM6_wait:
       Serial.println("DEBUG STATEMENT: SM6_wait") ;
-
-      while(Wire.available()){
+      
+      while(Wire.available()){  // read I2C data
           dataRPi = Wire.read() ;
       }
       Serial.print("DEBUG STATEMENT: dataRPi = ") ; Serial.println(dataRPi, DEC) ;
@@ -759,6 +763,8 @@ int TickFct_waterGun(int state){
   
   switch(state){  // state transitions
     case SM7_init:
+      calibration(); //start calibration procedure
+      delay(5000) ;
       state = SM7_wait ;
       break ;
     case SM7_wait:
@@ -808,6 +814,8 @@ int TickFct_waterGun(int state){
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
       //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
       cnt = 0 ;
+      calibration(); //start calibration procedure ... uncomment later
+      //delay(5000) ;
       break ;
     case SM7_activateGun:
       Serial.println("DEBUG STATEMENT: SM7_activateGun") ;
@@ -844,6 +852,10 @@ void setup() {
   pinMode(pin10_PWM, OUTPUT) ;  // potentiometer pin
   analogWriteResolution(10) ;   // 10 bit PWM
   pinMode(buttonPin, INPUT) ;   // button pin
+  pinMode(DIAGNOSE_LED, OUTPUT) ;  // LED used for diagnosing code
+
+  // light up LED for diagnostics
+  digitalWrite(DIAGNOSE_LED, HIGH) ;
   
   // set up motors
   pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
@@ -870,26 +882,31 @@ void setup() {
   // set up HX711
   Serial.println("Begin loadcell") ; // ------- debug only statement -------
   LoadCell.begin() ;  // load cell set up
+  
+  // set up vars for HX711
   Bool tareHX711 = True ;  // set to false if tare should not be conducted next step
   float calibrationValue ;  // calibration value
   calibrationValue = 696.0 ;  // uncomment if calibrationValue is set in file
-  EEPROM.get(calValAddrEEPROM_g, calibrationValue) ;  // parameters: addr of EEPROM, calibration value
   const unsigned int stabilizingTime = 2000 ; // time to stabilize
+  
+  EEPROM.get(calValAddrEEPROM_g, calibrationValue) ;  // parameters: addr of EEPROM, calibration value
+  Serial.print("EEPROM val = "); Serial.println(calibrationValue) ; // -------- debug only statement --------
   
   Serial.println("Starting loadcell") ;   // -------- debug only statement ------
   LoadCell.start(stabilizingTime, tareHX711) ;  // check if correct pins were used
   Serial.println("Starting calibration") ;  // -------- debug only statement -------
-  LoadCell.setCalFactor(calibrationValue) ; // set calibration
+  //LoadCell.setCalFactor(calibrationValue) ; // set calibration
   
-  if (LoadCell.getTareTimeoutFlag() || LoadCell.getSignalTimeoutFlag()) { // check if pins were correct
-    Serial.println("Timeout, check MCU>HX711 wiring and pin designations");
+  if (LoadCell.getTareTimeoutFlag()) { // check if pins were correct
+    Serial.println("Timeout, check MCU>HX711 wiring and pin designations") ;
+    //while(1) ;  // stay in loop until error is corrected
   } else {  // set up pins were correct 
-    LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
+    //LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
+    LoadCell.setCalFactor(calibrationValue) ;
     Serial.println("Startup is complete");
   }
-  //while (!LoadCell.update()); // wait until load cell updates
-  calibrate(); //start calibration procedure
-  delay(5000) ;
+  
+  while (!LoadCell.update()); // wait until load cell updates
   // finish HX711
   
   
@@ -972,7 +989,7 @@ void setup() {
   plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
-  plants[1].priority = low ;
+  plants[1].priority = medium ;
   plants[1].valPI.prop = 0 ;
   plants[1].valPI.integ = 0 ;
 
@@ -980,10 +997,12 @@ void setup() {
   plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
-  plants[2].priority = low ;
+  plants[2].priority = high ;
   plants[2].valPI.prop = 0 ;
   plants[2].valPI.integ = 0 ;
-  
+
+  // turn off diagnostic LED
+  digitalWrite(DIAGNOSE_LED, LOW) ;  
 }
 
 void loop() {
@@ -1242,7 +1261,7 @@ void event(void){
 }
 
 /* 
-  Function name: calibrate
+  Function name: calibration
   Purpose: Sets up weight sensor with known weight
   Details: FINISH LATER
 
@@ -1255,74 +1274,40 @@ void event(void){
   TODO:
     FINISH LATER
 */
-void calibrate(void){
+void calibration(void){
   // local vars
-  static Bool newDataReady = False ;
-  float knownMass = 0 ;   // known mass of object ... may change?
+  static Bool newDataReady = False ;  // used to determine if weight sensor is active
   const unsigned char intervalTime = 0 ;
-  //static const float minimumMass ;  // minimum weight for water tank
-  
-//  while(newDataReady == False){  // get status of tare
-//    LoadCell.update() ;
-//    if(LoadCell.getTareStatus()){
-//      newDataReady = True ;  
-//      Serial.println("DEBUG STATEMENT: tare complete") ;
-//    }
-//  }
-//
-//  newDataReady = False ;
-//
-//  while(newDataReady == False){
-//    LoadCell.update() ;
-//  }
-//
-//  LoadCell.refreshDataSet() ;
-//  float newCalibrationData = LoadCell.getNewCalibration(knownMass) ;
-//
-//  if(LoadCell.update()){
-//    newDataReady = True ;  
-//  }
-//  if(newDataReady == True){
-//    if(millis() + t > intervalTime){
-//      float i = LoadCell.getData() ;  // var used to print to serial monitor
-//      Serial.print("DEBUG STATEMENT: weight = "); Serial.println(i) ; // comment out when no longer needed
-//      newDataReady = True ;
-//      t = millis() ;
-//      if(i > minimumMass){  // measured mass is above minimum water required
-//        stopSig_g = True ;    // do not send stop signal 
-//      } else{
-//        stopSig_g = False ;  
-//      }
-//    }
-//  }
-//
-//  // more to finish (?)
+  volatile float massRead = 0 ;   // mass read from weight sensor
+  static const float minimumMass = 0 ;  // minimum weight for water tank
+  static const float expectedMass = 100 ; // mass needed with water tank
 
-    if(LoadCell.update()){
-      newDataReady = True ;
-      Serial.println("LoadCell updated") ; 
-    } else{
-      Serial.println("LoadCell not updated") ;  
-    }
+  if(LoadCell.update()){  // check for new data/start next conversion
+    newDataReady = True ;
+    Serial.println("LoadCell updated") ; 
+  } else{
+    newDataReady = False ;
+    Serial.println("LoadCell not updated") ;
+  }
 
-    if(newDataReady == True){
-      if(millis() > (t + (float)intervalTime)){
-        float i = LoadCell.getData() ;
-        Serial.print("LoadCell data = "); Serial.println(i) ;
-        newDataReady = False ;
-        t = millis() ;
-        if(i >= 0){
-          stopSig_g = True ;  
-        } else{
-          stopSig_g = False ;  
-        }
-      }  
-    } else{
-      Serial.println("newDataReady is not ready") ;  
-    }
+  if(newDataReady == True){
+    if(millis() > (t + (float)intervalTime)){
+      massRead = LoadCell.getData() ;
+      Serial.print("LoadCell data (g) = "); Serial.println(massRead) ;
+      newDataReady = False ;
+      t = millis() ;
+      if(massRead >= minimumMass && massRead < expectedMass){
+        stopSig_g = True ;  
+      } else{
+        stopSig_g = False ;  
+      }
+    }  
+  } else{
+    Serial.println("newDataReady is not ready") ;  
+  }
 
-    Serial.print("stopSig_g = "); Serial.println(stopSig_g) ;
-    Serial.println("Exiting calibration") ;
+  Serial.print("stopSig_g = "); Serial.println(stopSig_g) ;
+  Serial.println("Exiting calibration") ;
 }
 
 /* 
@@ -1400,5 +1385,13 @@ void bubbleSortPlant(void){
       }  
     }
   }
+
+  #if 1
+    for(i = 0; i < NUM_PLANTS; i++){
+      Serial.print("Plant: "); Serial.print(plants[i].plantNum) ;
+      Serial.print("\nPlant priority: "); Serial.println(plants[i].priority) ;
+    }
+    delay(5000) ;
+  #endif
 }
 /* end functions */
