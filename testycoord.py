@@ -21,6 +21,7 @@
 # Import packages
 import os
 import argparse
+import imutils
 import cv2
 import numpy as np
 import sys
@@ -363,6 +364,7 @@ while True:
     
     msg = i2c_msg.write(addr,dec_list)
     bus.i2c_rdwr(msg)
+    dec_list.pop(3)
     
     # All the results have been drawn on the frame, so it's time to display it.
     cv2.imshow('Object detector', frame)
