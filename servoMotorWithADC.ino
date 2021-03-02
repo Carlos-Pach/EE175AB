@@ -38,7 +38,8 @@
 #define HX711_DOUT    4     // HX711 dout pin (pin 4)
 #define HX711_SCK     5     // HX711 sck pin (pin 5)
 #define MOTOR_1_PWM   6     // Motor 1 PWM pin (pin 6)
-#define DIAGNOSE_LED   8     // startup code LED (pin 8)
+#define SQUIRT_MOTOR  7     // Motor for squirt gun (pin 7)
+#define DIAGNOSE_LED  8     // startup code LED (pin 8)
 #define servoPin      9     // servo (pin 9)
 #define pin10_PWM     10    // pin 10 (PWM)
 #define MOTOR_1A_PIN  11    // motor 1A pin (pin 11)
@@ -47,16 +48,16 @@
 #define buttonPin     15    // pin 15 (analog 1) 
 #define i2cPinSCL     19    // pin 19 (SCL0)
 #define i2cPinSDA     18    // pin 18 (SDA0)
-#define MOTOR_2_PWM   20     // PWM motor 2 pin (pin 20)
+#define MOTOR_2_PWM   20    // PWM motor 2 pin (pin 20)
 #define MOTOR_2B_PIN  21    // motor 2B pin (pin 21)
 #define MOTOR_2A_PIN  22    // motor 2A pin (pin 22)
 // Pins not used:
-// 7, 8, 16-17, 23
+// 16-17, 23
 
 
 #define NUM_PLANTS    3     // number of plants to water
 #define ARR_SIZE      7     // size of look up table (LUT)
-#define TASKS_NUM     7     // number of tasks
+#define TASKS_NUM     8     // number of tasks
 #define BAUD_RATE     38400  // baud rate for serial
 #define BT_BAUD_RATE  38400  // baud rate for BT (HC-06 is 9600 by default) ... HC-05 38400 BAUD
 
@@ -105,10 +106,11 @@ const unsigned long tasksPeriodGCD = 5 ; // 5 [ms]  5000 --> 5
 const unsigned long periodUltraSonic = 30; // 30 [ms] 30000 --> 30
 const unsigned long periodBTModule = 25 ; // 25 [ms]  25000 --> 25
 const unsigned long periodIfPressed = 50 ; // 50 [ms] 50000 --> 50
-const unsigned long periodServo = 20 ;    // 20 [ms]  20000 --> 20 /* SG-90 has a 20 [ms] period; change for different servos */
+const unsigned long periodServo = 20 ;    // 20 [ms]  20000 --> 20 ... SG-90 has a 20 [ms] period; change for different servos
 const unsigned long periodOutputLED = 150 ; // 150 [ms] 250000 --> 250 --> 150
 const unsigned long periodRPiData = 125 ;   // 125 [ms] 125000 --> 125
 const unsigned long periodWaterGun = 75 ;   // 75 [ms]  75000 --> 75
+const unsigned long periodWeightSensor = 35 ;
 
 unsigned char runningTasks[TASKS_NUM] = {255} ; /* Track running tasks, [0] always idle */
 unsigned char idleTask = 255 ;  /* 0 highest priority, 255 lowest */
@@ -127,8 +129,11 @@ enum SM_ultraSonic{SM5_init, SM5_measure, SM5_filter} ;
 int TickFct_ultraSonic(int state) ;
 enum SM_dataFromRPi{SM6_init, SM6_wait, SM6_getData } ;
 int TickFct_dataFromRPi(int state) ;
-enum SM_waterGun{SM7_init, SM7_wait, SM7_activateGun, SM7_deactivateGun, SM7_measureWeight} ;
+//enum SM_waterGun{SM7_init, SM7_wait, SM7_activateGun, SM7_deactivateGun, SM7_measureWeight} ;
+enum SM_waterGun{SM7_init, SM7_wait, SM7_waterPlant, SM7_shootObject, SM7_ERROR } ;
 int TickFct_waterGun(int state) ;
+enum SM_weightSensor{SM8_init, SM8_wait, SM8_measureWeight } ;
+int TickFct_checkWeightSensor(int state) ;
 
 void TimerISR(void){    /* Scheduler code */
   unsigned char i ;     /* adjust according to number of tasks */
@@ -202,13 +207,25 @@ Bool buttonPressed_g = False;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun_g = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig_g = False ;    // determines when to stop water nozzle
+Bool isPlant_g = False ;    // detects plant from RPi
+Bool isObject_g = False ;   // detects object from RPi
+Bool checkWater_g = False ; // determines if SM should check sensor or not
 
 volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g ; // distance calculated by Teensy
+volatile unsigned char angleRPi_g ; // angle from RPi
 unsigned int valPWM_g ; // PWM output value
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
 long t ;  // time elapsed for LoadCell
 const int carVeloc_g = arrPWM[2] ;  // velocity of car (can be changed later)
+const float expectedMass_g = 440.0 ;  // expected mass of weight sensor (can be changed later)
+const float minMass_g = 50.0 ; // minimum mass needed until refill is necessary (can be changed later)
+
+// i2c vars ... may change
+int degrees = 0 ;
+int arr[]= {0} ;
+int class_n = 0 ;
+char name[13] ;
 
 // values for PID system ... can be changed as testing continues
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -225,12 +242,13 @@ void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA) ; 
 void cutOffFilter(unsigned long arr[], unsigned long maxDist, unsigned char n) ;  // function caps array values to max distance
 int32_t calculateError(int desiredVal, int approxVal) ;  // function that calculates error for PI sys
 int32_t calculateInteg(int32_t errorVal, int32_t integralVal) ;  // function that calculates integral for PI sys
-void event(void) ;  // i2c event when getting data
+void event(int byteCount) ;  // i2c event when getting data
 void calibration(void) ;
 uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar) ;  // returns decoded plant val (in dec)
 void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addresses
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
 void bubbleSortPlant(void) ;
+float measureMass(void) ;  // measures current mass of weight sensor
 /* end function prototypes */
 
 
@@ -450,9 +468,9 @@ int TickFct_servos(int state){
 /* State Machine 4 */
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
-  unsigned char numOfPlant ;
+  //unsigned char numOfPlant ;
   static unsigned char plantDecodeID = 0x00 ;
-  char arr[] = {} ;  // create empty array buffer from phone BT terminal
+  //char arr[] = {} ;  // create empty array buffer from phone BT terminal
   unsigned char chRecv = 0x00 ; // init char for Rx buffer
   const static unsigned char n = sizeof(plantDecoder)/sizeof(plantDecoder[0]) ;
 
@@ -468,7 +486,7 @@ int TickFct_HC05(int state){
       Serial.println("DEBUG STATEMENT: SM4_wait") ;
       delay(20) ;
       numBytes = BT.available() ;
-      Serial.println("numBytes: "); Serial.println(numBytes) ;
+      Serial.print("numBytes: "); Serial.println(numBytes) ;
       
       if(BT.available() > 0){ /* if buffer has message, read it */
         state = SM4_connect ;  
@@ -544,7 +562,7 @@ int TickFct_HC05(int state){
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_0") ;
               Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
               Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
@@ -555,7 +573,7 @@ int TickFct_HC05(int state){
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_1") ;
               Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
               Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
@@ -566,7 +584,7 @@ int TickFct_HC05(int state){
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
 
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_2") ;
               Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
               Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
@@ -583,7 +601,7 @@ int TickFct_HC05(int state){
         }
       }
       Serial.print("Numbytes: "); Serial.println(numBytes) ;
-      delay(3000) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
+      //delay(3000) ;   // 2000 [ms] --> 200 [ms] ... delay so plant controller can catch up
       
       /* print BT buffer to serial monitor */
       #if 0
@@ -760,7 +778,12 @@ int TickFct_dataFromRPi(int state){
 /* State Machine 7 */
 int TickFct_waterGun(int state){
   static unsigned char cnt = 0 ;
+  static unsigned char i = 0 ;
+  static unsigned char waterCnt = 0 ;
+  static int theta = 90 ;
+  static unsigned char errCnt = 0 ;
   
+  /*
   switch(state){  // state transitions
     case SM7_init:
       calibration(); //start calibration procedure
@@ -774,6 +797,7 @@ int TickFct_waterGun(int state){
 //        state = SM7_activateGun ;  
 //      }
       // use this statement until weight sensor is finished
+
       if(buttonPressed_g == True){
         state = SM7_activateGun ;
       } else{
@@ -814,33 +838,164 @@ int TickFct_waterGun(int state){
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
       //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
       cnt = 0 ;
-      calibration(); //start calibration procedure ... uncomment later
+      //calibration(); //start calibration procedure ... uncomment later
       //delay(5000) ;
       break ;
     case SM7_activateGun:
-      Serial.println("DEBUG STATEMENT: SM7_activateGun") ;
+      Serial.println("DEBUG STATEMENT: SM7_activateGun") ; 
       // function to squirt the water gun
-      myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
-      
+      //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
+      for(i = 0; i < 10; i++){
+        digitalWrite(SQUIRT_MOTOR, HIGH) ;
+        delay(20) ;
+        digitalWrite(SQUIRT_MOTOR, LOW) ;
+        delay(20) ;
+      }
+      delay(1000) ;
       cnt++ ; // increase cnt
-      
       break ;
     case SM7_deactivateGun:
       Serial.println("DEBUG STATEMENT: SM7_deactivateGun") ;
       cnt++ ;
       __asm("nop") ;
+      break ;
     case SM7_measureWeight:
       Serial.println("DEBUG STATEMENT: SM7_measureWeight") ;
       // function to measure water tank capacity
+      mass = measureMass() ;
       waterMeasured_g = True ;
+      Serial.print("Mass = "); Serial.println(mass) ;
+      delay(5000) ; // REMOVE LATER
       break ;
     default:
       break ;
   }
-  return state ;  
+  */
+
+  switch(state){  // state transitions
+    case SM7_init:
+      state = SM7_wait ;
+      break ;
+    case SM7_wait:
+      if(!turnOnGun_g){ // gun cannot be used
+        state = SM7_wait ;  
+      } else{ // gun can be used
+        // animal or object takes greater priority
+        if(!isPlant_g && isObject_g){ // shoot object
+          state = SM7_shootObject ;
+          theta = angleRPi_g ;
+        } else if(isPlant_g && !isObject_g){  // water plant
+          state = SM7_waterPlant ;
+          theta = 0 ; // move servo motor
+        } else{ // ERROR
+          state = SM7_ERROR ;
+        }
+      }
+      break ;
+    case SM7_waterPlant:
+      if(cnt < 5){
+        state = SM7_waterPlant ;
+        cnt++ ;
+      } else{
+        state = SM7_wait ;
+        cnt = 0 ; // reset cnt
+        waterCnt++ ;  // increase count to read weight sensor
+        theta = 90 ;
+      }
+      break ;
+    case SM7_shootObject:
+      if(cnt < 5){
+        state = SM7_shootObject ;
+        cnt++ ;
+      } else {
+        state = SM7_wait ;
+        cnt = 0 ; // reset cnt
+        waterCnt++ ;  // increase count to read weight sensor
+        theta = 90 ;
+      }
+      break ;
+    case SM7_ERROR: // used for debugging
+      if(errCnt < 5){
+        state = SM7_ERROR ;
+      } else{
+        state = SM7_wait ;  
+      }
+      break ;
+    default:
+      state = SM7_init ;
+      break ;
+  }
+  switch(state){  // state actions
+    case SM7_init:
+      break ;
+    case SM7_wait:
+      myServo.write(theta) ;
+      checkWater_g = (waterCnt == 5 ? True : False) ;
+      waterCnt = (checkWater_g == True ? 0 : waterCnt) ;
+      digitalWrite(SQUIRT_MOTOR, LOW) ;
+      break ;
+    case SM7_waterPlant:
+      myServo.write(theta) ;
+      for(i = 0; i < 10; i++){  // squirt the gun
+        digitalWrite(SQUIRT_MOTOR, HIGH) ;
+      }
+      break ;
+    case SM7_shootObject:
+      myServo.write(theta) ;
+      for(i = 0; i < 10; i++){  // squirt the gun
+        digitalWrite(SQUIRT_MOTOR, HIGH) ;  
+      }
+      break ;
+    case SM7_ERROR:
+      digitalWrite(DIAGNOSE_LED, HIGH) ;
+      errCnt++ ;
+      break ;
+    default:
+      state = SM7_init ;
+      break ;
+  }
+  return state ;
 }
 
+// State Machine 8
+int TickFct_checkWeightSensor(int state){
+  // vars here
+  const uint16_t minMass = 50 ; // 50 [g]
+  const uint16_t expectedMass = 850 ; // ~2 [lbs] or 850 [g]
+  static float mass = 0.0 ;
 
+  switch(state){  // state transitions
+    case SM8_init:
+      calibration() ;
+      state = SM8_wait ;
+      break ;
+    case SM8_wait:
+      if(checkWater_g){
+        state = SM8_measureWeight ;  
+      } else{
+        state = SM8_wait ;  
+      }
+      break ;
+    case SM8_measureWeight:
+      break ;
+    default:
+      state = SM8_init ;
+      break ;
+  }
+  switch(state){  // state actions
+    case SM8_init:
+      break ;
+    case SM8_wait:
+      mass = measureMass() ;
+      break ;
+    case SM8_measureWeight:
+      break ;
+    default:
+      break ;  
+  }
+
+  return state ;
+}
 /* end SM functions */
 
 
@@ -853,6 +1008,7 @@ void setup() {
   analogWriteResolution(10) ;   // 10 bit PWM
   pinMode(buttonPin, INPUT) ;   // button pin
   pinMode(DIAGNOSE_LED, OUTPUT) ;  // LED used for diagnosing code
+  pinMode(SQUIRT_MOTOR, OUTPUT) ; // motor pin used for squirt gun
 
   // light up LED for diagnostics
   digitalWrite(DIAGNOSE_LED, HIGH) ;
@@ -973,6 +1129,13 @@ void setup() {
   tasks[i].period = periodWaterGun ;
   tasks[i].elapsedTime = tasks[i].period ;
   tasks[i].TickFct = &TickFct_waterGun ;
+  tasks[i].isRunning = False ;
+  i++ ;
+
+  tasks[i].state = SM8_init ;
+  tasks[i].period = periodWeightSensor ;
+  tasks[i].elapsedTime = tasks[i].period ;
+  tasks[i].TickFct = &TickFct_checkWeightSensor ;
   tasks[i].isRunning = False ;
   i++ ;
 
@@ -1244,20 +1407,78 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 
   Parameters:
       Name            Details
-      [In] dataI2C    - data being read from I2C bus
+      [In] byteCount    - Number of bytes available to read from I2C bus
   
   Return Value:
     None
   TODO:
-    N/A
+    Wait for Kelly and Chad to continue working on their portions
 */
 
-void event(void){
+void event(int byteCount){
   //Serial.println("DEBUG STATEMENT: event") ;
 
-  while(Wire.available()){  // read from I2C bus
-    distRPi_g = Wire.read() ; // read approx distance calculated
-  }
+//  while(Wire.available()){  // read from I2C bus
+//    distRPi_g = Wire.read() ; // read approx distance calculated
+//  }
+  while(Wire.available()) {               //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
+      for(int i=0; i<byteCount; i++){
+        arr[i] = Wire.read();
+       Serial.print(arr[i]);
+       Serial.print(" ");
+       }
+       
+       Serial.print(" \n");
+       if ((arr[0] & 8)==8 ){
+         //take info, do conversions, else, ignore
+         
+          degrees=0;
+          degrees= degrees | arr[1]<<4;
+          degrees= degrees | arr[2];  
+          // degrees= degrees | arr[1]<<8;  //commented out for >3 sets of bits (12) sent thru bus
+          // degrees= degrees | arr[2]<<4;  // this was for 4 sets (2 bytes) but the 4th set 
+          // degrees= degrees | arr[3];     //and beyond inits to 0 so this can't be used
+          
+          Serial.print(degrees);
+          Serial.print(" ");
+          
+
+      Serial.print("= degrees, our coordinate!");
+       Serial.print(" \n");
+       
+        class_n= arr[0] & 7; //bit mask left-most number to keep last 3 bits >>1;
+        //Serial.print(class_n);
+        //Serial.print("= was that class num correct?\n");
+           if (class_n==0) {
+             strcpy(name, "zero");}
+           else if (class_n==1){
+             strcpy(name, "one");}
+           else if (class_n==2){
+             strcpy(name, "two");}
+           else if (class_n==3){
+             strcpy(name, "three");}
+           else if (class_n==4){
+             strcpy(name, "squirrel");}
+           else if (class_n==5){
+             strcpy(name, "raccoon");
+             //digitalWrite(ledPin, HIGH);
+             //delay(500);
+             }
+           else if (class_n==6){
+             strcpy(name, "person");}
+           else if (class_n==7){
+             strcpy(name, "potted plant");}
+           else { }
+           Serial.print("class name: ");
+           Serial.print(name);
+           Serial.print("\n");
+       }
+       
+   else{
+        Serial.print("nothing! nothing seen of interest, COMMENT OUT\n\n")  ;
+       }    
+     
+   }
 }
 
 /* 
@@ -1393,5 +1614,44 @@ void bubbleSortPlant(void){
     }
     delay(5000) ;
   #endif
+}
+
+/* 
+  Function name: measureMass
+  Purpose: Measures current mass of weight sensor
+  Details: Measures mass in order to determine if there is enough water in
+           the water tank to continue spraying plants/animals
+  
+  Parameters: 
+    None
+  
+  Return value:
+    massToReturn
+  
+  TODO:
+    N/A
+*/
+float measureMass(void){
+  static Bool newDataReady = False ;
+  volatile float massToReturn = 0.00 ;
+  
+  newDataReady = (LoadCell.update() == 1 ? True : False) ;  // check if LoadCell has updated data
+  Serial.print("newDataReady = "); Serial.println(newDataReady) ; // print result to serial monitor
+  
+  if(newDataReady){ // read data if it is ready
+    massToReturn = LoadCell.getData() ;  
+    digitalWrite(DIAGNOSE_LED, LOW) ;
+  } else{ // otherwise return 0.00
+    massToReturn = 0.00 ;
+    Serial.println("DEBUG STATEMENT: data not ready") ;
+    digitalWrite(DIAGNOSE_LED, HIGH) ;
+    return massToReturn ; // exit function
+  }
+
+  if(massToReturn < -1*(expectedMass_g - minMass_g)){ // mass values are expected to be neg. as water is used
+    digitalWrite(DIAGNOSE_LED, HIGH) ;
+    Serial.println("DEBUG STATEMENT: less than minimum mass") ;
+  } 
+  return massToReturn ;
 }
 /* end functions */
