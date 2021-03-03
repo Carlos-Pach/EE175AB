@@ -1,3 +1,10 @@
+'''
+Send data from Pi to Teensy:
+Kelly: Detected Object # from 0-7, degrees for the water sprayer to turn to spray it
+Chad:  Distance (inches) (Arduino converts to cm) of any biggest red object [currently init by setting it ~24 inches away]
+-still need to add start on startup
+-make sure distance from red inits correctly (sometimes doesn't, and .py needs to be reset to work)
+'''
 # Import packages
 import os
 import argparse
@@ -16,8 +23,6 @@ bus = SMBus(1)      #for i2c using ic2-1 rather than ic2-0 port
 c=0                 #for mapping coordinate of obj
 data_bet= [0,0,0]   #zeros init final data [] to send over
 flag=0              #see if there is a detection or not
-
-
 
 
 def send_to_pi(data):
@@ -94,7 +99,7 @@ def send_to_pi(data):
 # Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
-    def __init__(self,resolution=(640,480),framerate=30):
+    def __init__(self,resolution=(640,480),framerate=40):
     #is the lowest supported resolution already!
 
         # Initialize the PiCamera and the camera image stream

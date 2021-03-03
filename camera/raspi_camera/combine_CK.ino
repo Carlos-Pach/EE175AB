@@ -10,9 +10,7 @@ RECEIVE DATA FROM PI: obj_num_g, degrees_g, c_dist_g (call in outside function e
 //Final variables: 
 //1. obj_num_g , 2. degrees_g , 3. c_dist_g;
 //1. object detected number 2. degree turn for water sprayer (0-180) 3. Distance from largest red object
-volatile unsigned int obj_num_g=0;
-volatile unsigned int degrees_g=0;
-volatile float c_dist_g=0; 
+
 
 volatile unsigned char buf[8] = "";     //recieves pi info
 volatile unsigned int arr[4]; // ={0};   //convert buf array to int() IMP! TO ASSIGN TO EMPTY ARRAY OR COULD GET RANDOM NUMBERS FOR DIFF INDEXES
@@ -28,6 +26,9 @@ void setup() {
 void loop() {  delay(1000); }  //250
  
  void receiveData(volatile int byteCount) { 
+    volatile unsigned int obj_num_g=0;
+    volatile unsigned int degrees_g=0;
+    volatile float c_dist_g=0; 
    while(Wire.available()) {  //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
       for(volatile int i=0; i<byteCount; i++){
          buf[i] = Wire.read();
@@ -83,6 +84,9 @@ void loop() {  delay(1000); }  //250
 
 void printPi( volatile unsigned int& degr, volatile float& c_di, volatile unsigned int& obj_num_g)
 {
+  //IMP:
+  // for obj_n_g ==0, AND degr==0,==> nothing detected, BUT:
+  //if obj_n==0 && degrees==True (exists), then => 'zero' SOMETHING detected)
   Serial.print("detected obj: ");
   Serial.print(obj_num_g);
   Serial.print("\n degrees_g to turn water sprayer: ");
