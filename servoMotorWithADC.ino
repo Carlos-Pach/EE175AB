@@ -11,14 +11,10 @@
              acceptance/denial of the servo during waiting times.
 
     Notes/TO DO: (1) I2C works
-                    (a) Ask Chad and Kelly to help send data from Pi --> Teensy
-                 (2) Test PI controller code
-                    (a) Implement controller with received data
-                 (3) finish water gun function/SM
-                    (a) Finish start-up/calibration code, and water measuring functions
-                      (i) Look at github code line 55 to port into SM code
-                 (4) Finished sorting algo for distance measurements
-                    (a) Test further with changing distance
+                    (a) Wait for Kelly and Chad to finish their I2C transmission code
+                 (2) finish water gun function/SM
+                    (a) Solve problem/bug when gun activates the BT module turns off
+                        and remains off
 
 */
 
@@ -40,7 +36,6 @@
 #define MOTOR_1_PWM   6     // Motor 1 PWM pin (pin 6)
 #define SQUIRT_MOTOR  7     // Motor for squirt gun (pin 7)
 #define DIAGNOSE_LED  8     // startup code LED (pin 8)
-#define servoPin      9     // servo (pin 9)
 #define pin10_PWM     10    // pin 10 (PWM)
 #define MOTOR_1A_PIN  11    // motor 1A pin (pin 11)
 #define MOTOR_1B_PIN  12    // motor 1B pin (pin 12)
@@ -51,8 +46,9 @@
 #define MOTOR_2_PWM   20    // PWM motor 2 pin (pin 20)
 #define MOTOR_2B_PIN  21    // motor 2B pin (pin 21)
 #define MOTOR_2A_PIN  22    // motor 2A pin (pin 22)
+#define servoPin      23     // servo (pin 9)
 // Pins not used:
-// 16-17, 23
+// 9, 16-17
 
 
 #define NUM_PLANTS    3     // number of plants to water
@@ -69,6 +65,14 @@ HX711_ADC LoadCell(HX711_DOUT, HX711_SCK) ;
 typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
+
+typedef struct distKNN{
+  uint16_t x, y ;   // points on x-y plane (x is teeensy, y is RPi)
+  double distance ; // distance from test points 
+  Bool correctDist ; 
+} tKNN ;
+
+tKNN approxDistKNN[10], distanceRead ; // amount of test points
 
 typedef struct controllerPI{  // PI controller value struct
   uint16_t prop ;
@@ -249,6 +253,7 @@ void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addr
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
 void bubbleSortPlant(void) ;
 float measureMass(void) ;  // measures current mass of weight sensor
+void initKNN(void) ;  // inits KNN training data
 /* end function prototypes */
 
 
@@ -353,8 +358,8 @@ int TickFct_servos(int state){
       for(i = 0; i < 10; i++){  // turn on motor 1A and 2B to go forward
         digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-        outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ; // turn on motor
-        outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ; // turn on motor
+        outputPWM(510, MOTOR_1_PWM) ; delay(5) ; // turn on motor ... valPWM_g --> carVeloc_g --> 510
+        outputPWM(carVeloc_g, MOTOR_2_PWM) ; delay(5) ; // turn on motor ... valPWM_g --> carVeloc_g
       }
       break ;
     case SM3_turnOffServo:
@@ -746,6 +751,7 @@ int TickFct_ultraSonic(int state){
 /* State Machine 6 */
 int TickFct_dataFromRPi(int state){
   static unsigned char dataRPi = 0 ;
+  
   switch(state){  // state transitions
     case SM6_init:
       state = SM6_wait ;
@@ -783,7 +789,7 @@ int TickFct_waterGun(int state){
   static int theta = 90 ;
   static unsigned char errCnt = 0 ;
   
-  /*
+  #if 0   // change to 1 to activate code
   switch(state){  // state transitions
     case SM7_init:
       calibration(); //start calibration procedure
@@ -870,13 +876,24 @@ int TickFct_waterGun(int state){
     default:
       break ;
   }
-  */
+  #endif
 
   switch(state){  // state transitions
     case SM7_init:
       state = SM7_wait ;
+      
+      // test squirt gun and servo motor
+      myServo.write(180) ;
+      delay(20) ;
+      digitalWrite(SQUIRT_MOTOR, LOW) ;
+      for(i = 0; i < 20; i++){
+          digitalWrite(SQUIRT_MOTOR, HIGH) ;
+          delay(20) ;
+      }
+      delay(200) ;
       break ;
     case SM7_wait:
+      Serial.println("DEBUG STATEMENT: SM7_wait") ;
       if(!turnOnGun_g){ // gun cannot be used
         state = SM7_wait ;  
       } else{ // gun can be used
@@ -893,6 +910,7 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_waterPlant:
+      Serial.println("DEBUG STATEMENT: SM7_waterPlant") ;
       if(cnt < 5){
         state = SM7_waterPlant ;
         cnt++ ;
@@ -904,6 +922,7 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_shootObject:
+      Serial.println("DEBUG STATEMENT: SM7_shootObject") ;
       if(cnt < 5){
         state = SM7_shootObject ;
         cnt++ ;
@@ -915,13 +934,16 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_ERROR: // used for debugging
-      if(errCnt < 5){
+      Serial.println("DEBUG STATEMENT: SM7_ERROR") ;
+      if(errCnt < 250){
         state = SM7_ERROR ;
       } else{
-        state = SM7_wait ;  
+        state = SM7_wait ;
+        digitalWrite(DIAGNOSE_LED, LOW) ;
       }
       break ;
     default:
+      Serial.println("DEBUG STATEMENT: SM7 default") ;
       state = SM7_init ;
       break ;
   }
@@ -936,19 +958,22 @@ int TickFct_waterGun(int state){
       break ;
     case SM7_waterPlant:
       myServo.write(theta) ;
-      for(i = 0; i < 10; i++){  // squirt the gun
+      for(i = 0; i < 3; i++){  // squirt the gun
         digitalWrite(SQUIRT_MOTOR, HIGH) ;
+        delay(10) ;
       }
       break ;
     case SM7_shootObject:
       myServo.write(theta) ;
-      for(i = 0; i < 10; i++){  // squirt the gun
-        digitalWrite(SQUIRT_MOTOR, HIGH) ;  
+      for(i = 0; i < 3; i++){  // squirt the gun
+        digitalWrite(SQUIRT_MOTOR, HIGH) ;
+        delay(10) ;
       }
       break ;
     case SM7_ERROR:
       digitalWrite(DIAGNOSE_LED, HIGH) ;
       errCnt++ ;
+      delay(5000) ;   // remove after testing
       break ;
     default:
       state = SM7_init ;
@@ -970,6 +995,7 @@ int TickFct_checkWeightSensor(int state){
       state = SM8_wait ;
       break ;
     case SM8_wait:
+      Serial.println("DEBUG STATEMENT: SM8_wait") ;
       if(checkWater_g){
         state = SM8_measureWeight ;  
       } else{
@@ -977,8 +1003,11 @@ int TickFct_checkWeightSensor(int state){
       }
       break ;
     case SM8_measureWeight:
+      Serial.println("DEBUG STATEMENT: SM8_measureWeight") ;
+      state = SM8_wait ;
       break ;
     default:
+      Serial.println("DEBUG STATEMENT: SM8 default") ;
       state = SM8_init ;
       break ;
   }
@@ -1164,6 +1193,8 @@ void setup() {
   plants[2].valPI.prop = 0 ;
   plants[2].valPI.integ = 0 ;
 
+  initKNN() ;
+  
   // turn off diagnostic LED
   digitalWrite(DIAGNOSE_LED, LOW) ;  
 }
@@ -1607,7 +1638,7 @@ void bubbleSortPlant(void){
     }
   }
 
-  #if 1
+  #if 0
     for(i = 0; i < NUM_PLANTS; i++){
       Serial.print("Plant: "); Serial.print(plants[i].plantNum) ;
       Serial.print("\nPlant priority: "); Serial.println(plants[i].priority) ;
@@ -1641,17 +1672,79 @@ float measureMass(void){
   if(newDataReady){ // read data if it is ready
     massToReturn = LoadCell.getData() ;  
     digitalWrite(DIAGNOSE_LED, LOW) ;
+    turnOnGun_g = True ;
   } else{ // otherwise return 0.00
     massToReturn = 0.00 ;
     Serial.println("DEBUG STATEMENT: data not ready") ;
     digitalWrite(DIAGNOSE_LED, HIGH) ;
+    turnOnGun_g = False ;
+    Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
     return massToReturn ; // exit function
   }
 
   if(massToReturn < -1*(expectedMass_g - minMass_g)){ // mass values are expected to be neg. as water is used
     digitalWrite(DIAGNOSE_LED, HIGH) ;
     Serial.println("DEBUG STATEMENT: less than minimum mass") ;
+    turnOnGun_g = False ;
+    Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
   } 
   return massToReturn ;
+}
+
+/* 
+  Function name: initKNN
+  Purpose: Initializes test values for KNN algo
+  Details: Uses test points in order to train algo in determining 
+           correct approximate distance measured
+
+  Parameters:
+    None
+  Return Value:
+    None
+*/
+void initKNN(void){
+  // x is Teensy, y is RPi
+  
+  // set up true approx distance
+  approxDistKNN[0].x = 15 ; // 15 [cm] 
+  approxDistKNN[0].y = 18 ; // 18 [cm]
+  approxDistKNN[0].correctDist = True ;
+
+  approxDistKNN[1].x = 20 ;
+  approxDistKNN[1].y = 23 ;
+  approxDistKNN[1].correctDist = True ;
+
+  approxDistKNN[2].x = 25 ;
+  approxDistKNN[2].y = 25 ;
+  approxDistKNN[2].correctDist = True ;
+
+  approxDistKNN[3].x = 35 ;
+  approxDistKNN[3].y = 37 ;
+  approxDistKNN[3].correctDist = True ;
+
+  approxDistKNN[4].x = 40 ;
+  approxDistKNN[4].y = 43 ;
+  approxDistKNN[4].correctDist = True ;
+
+  // set up false approx distance
+  approxDistKNN[5].x = 50 ;
+  approxDistKNN[5].y = 65 ;
+  approxDistKNN[5].correctDist = False ;
+
+  approxDistKNN[6].x = 65 ;
+  approxDistKNN[6].y = 50 ;
+  approxDistKNN[6].correctDist = False ;
+
+  approxDistKNN[7].x = 80 ;
+  approxDistKNN[7].y = 90 ;
+  approxDistKNN[7].correctDist = False ;
+
+  approxDistKNN[8].x = 95 ;
+  approxDistKNN[8].y = 50 ;
+  approxDistKNN[8].correctDist = False ;
+
+  approxDistKNN[9].x = 75 ;
+  approxDistKNN[9].y = 90 ;
+  approxDistKNN[9].correctDist = False ;
 }
 /* end functions */
