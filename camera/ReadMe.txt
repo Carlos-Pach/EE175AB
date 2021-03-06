@@ -84,7 +84,7 @@ TRAIN / EVALUATION :
 TENSORBOARD:  (graph visualization during training time):
 open another terminal window: (MAKE sure to goto venv, then cd into obj detection)
 
-tensorboard --logdir=training --host localhost --port 8088
+tensorboard --logdir=images --host localhost --port 8088
 http://localhost:8088/
 (to take out error go to C:\condaconda64\envs\tensorflow1\Lib\site-packages\tensorboard\manager.py
 change these lines
@@ -113,6 +113,12 @@ python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_
 #python models/research/object_detection/model_main.py --pipeline_config_path=/path/to/pipeline_file --model_dir=/path/to/output_results --checkpoint_dir=/path/to/directory_holding_checkpoint --run_once=True
 #python models/research/object_detection/model_main.py --pipeline_config_path=/training/ssd_mobilenet_v2_quantized_300x300_coco.config --checkpoint_dir=/training/model.ckpt-75 --run_once=True
 
+python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr
+
+
+
+python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr --checkpoint_dir=\images\model.ckpt-1345 
+
 
 %tensorboard --logdir logs/gradient_tape
 file_writer = tf.summary.FileWriter('/path/to/logs', sess.graph)
@@ -135,6 +141,7 @@ https://www.robots.ox.ac.uk/~vgg/data/flowers/
 
 numbers : MINIST has 60k training, 10k test examples, too many, we only need a few (less)
 http://yann.lecun.com/exdb/mnist/
+http://ufldl.stanford.edu/housenumbers/
 
 so use a user-created dataset !!!!!!!!!!!!!!!!!!!!!!!
 https://www.kaggle.com/scolianni/mnistasjpg
@@ -148,6 +155,9 @@ https://github.com/datitran/raccoon_dataset
 https://towardsdatascience.com/how-to-train-your-own-object-detector-with-tensorflows-object-detector-api-bec72ecfe1d9
 
 created squirrel, potted plant dataset
+
+augmentation:
+https://github.com/tensorflow/models/blob/master/research/object_detection/builders/preprocessor_builder_test.py
 ==================================================================================
 RASPBERRY PI:
 

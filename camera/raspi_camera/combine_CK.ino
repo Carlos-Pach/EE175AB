@@ -15,11 +15,15 @@ RECEIVE DATA FROM PI: obj_num_g, degrees_g, c_dist_g (call in outside function e
 volatile unsigned char buf[8] = "";     //recieves pi info
 volatile unsigned int arr[4]; // ={0};   //convert buf array to int() IMP! TO ASSIGN TO EMPTY ARRAY OR COULD GET RANDOM NUMBERS FOR DIFF INDEXES
 
+const int ledPin = 13; 
 
 void setup() {
   Serial.begin(9600);
   Wire.begin(SLAVE_ADDRESS);
   Wire.onReceive(receiveData);
+// Setup pin 13 as output and turn LED off
+ pinMode(ledPin, OUTPUT);
+ digitalWrite(ledPin, LOW);
  // Wire.onRequest(sendData);  //if needed to send data to pi
 }
 
@@ -30,6 +34,7 @@ void loop() {  delay(1000); }  //250
     volatile unsigned int degrees_g=0;
     volatile float c_dist_g=0; 
    while(Wire.available()) {  //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
+      digitalWrite(ledPin, LOW);
       for(volatile int i=0; i<byteCount; i++){
          buf[i] = Wire.read();
          //Serial.print(buf[2], DEC);
@@ -50,6 +55,12 @@ void loop() {  delay(1000); }  //250
     //1. Kelly's Object Number
     //on first 4 bits, bit mask last 3 bits, so ex. 0111, each number 0-7 corresponds to a hard-coded char string array name: ex. raccoon 
         obj_num_g= arr[0] & 7; 
+        
+        if (obj_num_g==7){
+            digitalWrite(ledPin, HIGH);
+            delay(1000);
+        }
+        
           // if (obj_num_g==0) {
           //   strcpy(name, "zero");}
           // else if (obj_num_g==1){

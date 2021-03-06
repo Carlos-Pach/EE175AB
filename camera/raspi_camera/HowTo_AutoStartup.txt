@@ -1,0 +1,63 @@
+About: How to startup camera.py script for Pi on Restart/Reboot
+--------------------------------------------------------------
+This link for reference:
+https://www.raspberrypi.org/documentation/linux/usage/systemd.md
+--------------------------------------------------------------
+(camera.py is the ex. name of our camera program)
+(so replace it as you need to below)
+==============================================================
+
+Type in terminal:
+	cd /
+	sudo nano /lib/systemd/system/camera.service
+
+(editing in nano:)
+=================================
+paste in:
+
+[Unit]
+Description=My service for EE175ab
+After=network.target
+
+[Service]
+WorkingDirectory=/home/pi/tflite1
+ExecStart=/home/pi/tflite1/tflite1env/bin/python3 camera.py --modeldir=TFLite_model --resolution=640x480
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+
+=================================
+Check if it works now in root (type: cd / ) by:
+sudo systemctl start camera.service
+
+Then stop by: 
+sudo systemctl stop camera.service
+=================================
+If it works fine type this:
+sudo systemctl enable camera.service
+------------------------------------------------------------------
+NOTES:
+
+	-After reboot, you should still see your Desktop (if you have one), 
+	camera.py script will also run at the same time.
+	
+	-@root (type: cd / ) type:
+	sudo systemctl stop camera.service
+	to stop the program if needed. (Don't run for too long)
+
+
+	-When you first take out power and reboot, it might take a couple minutes,
+	but afterwords should be a little faster (~25 seconds).
+
+
+	-You can test to see if it recognizes objects 
+	by holding a picture of a potted plant in front,
+ 	and Pin 13 (other orange light on Arduino) 
+	should light up when it spots it (just the plant for now).
+	(update the .ino script to get the light turned on, 
+	or you can manually type in and upload the digital writes for Arduino)
+ 

@@ -1,4 +1,13 @@
 !!!Make sure you do this in your venv!!! 
+-----------------------------------------------------------------------------
+--> (CURRENT CODE) combine_CK.py and .ino for current script with i2c 
+
+		(later final file names):
+		--> camera_kellyonly.py (only has camera script + i2c for degrees, object detected)
+		--> finalcamera_KD_CW.py (has above + Chad's distance from biggest red object sent in i2c to arduino/teensy)
+
+==============================================================================
+==============================================================================
 
 Versions:
 Python 3.7.3
