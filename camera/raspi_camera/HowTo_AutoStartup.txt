@@ -13,6 +13,8 @@ Type in terminal:
 
 (editing in nano:)
 =================================
+***note that I put my python interpreter path called 'tflite1env' like below, check and make sure 
+	you have the same path to your venv python3 & script! *** (@ WorkingDirectory & @ExecStart)
 paste in:
 
 [Unit]
@@ -50,7 +52,7 @@ NOTES:
 	to stop the program if needed. (Don't run for too long)
 
 
-	-When you first take out power and reboot, it might take a couple minutes,
+	-When you first take out power and reboot, it might take a couple minutes, and have a black screen,
 	but afterwords should be a little faster (~25 seconds).
 
 
@@ -60,4 +62,5 @@ NOTES:
 	should light up when it spots it (just the plant for now).
 	(update the .ino script to get the light turned on, 
 	or you can manually type in and upload the digital writes for Arduino)
+	-Or simply just check your Serial Monitor!
  

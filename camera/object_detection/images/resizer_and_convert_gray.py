@@ -16,22 +16,39 @@ dir_path = os.getcwd()
 
 
 for filename in os.listdir(dir_path):
+    # if filename.endswith(".jpg"):
+    #     orig_im = cv2.imread(filename)
+        # image = cv2.cvtColor(orig_im, cv2.COLOR_BGR2GRAY)
+
+    #     (height, width) = image.shape[:2]
+    #     if (height <= 700) or (width <= 700):
+	#         resized_to7 = cv2.resize(image, (700,933), interpolation = cv2.INTER_AREA)
+	#         cv2.imwrite(filename,resized_to7)
+    
+    # if filename.endswith(".png"):
+    #     orig_im = cv2.imread(filename)
+    #     image = cv2.cvtColor(orig_im, cv2.COLOR_BGR2GRAY)
+
+    #     (height, width) = image.shape[:2]
+    #     if (height <= 700) or (width <= 700):
+	#         resized_to7 = cv2.resize(image, (700,933), interpolation = cv2.INTER_AREA)
+	#         cv2.imwrite(filename,resized_to7)
+    
     if filename.endswith(".jpg"):
         image = cv2.imread(filename)
         (height, width) = image.shape[:2]
-        if (height <= 700) or (width <= 700):
-	        resized_to7 = cv2.resize(image, (700,700), interpolation = cv2.INTER_AREA)
+        if height<550 or height >950 or width<550 or width<950:
+        # if (height!=700) and (width!=700) or ((height!=700) and (width!=933)):
+	        resized_to7 = cv2.resize(image, (700,933), interpolation = cv2.INTER_AREA)
 	        cv2.imwrite(filename,resized_to7)
-    
 
-    #if filename.endswith(".jpg"):
-        #image = cv2.imread(filename)
-        #(height, width) = image.shape[:2]
-        #if (height!=700) and (width!=700):
-	        #resized_to7 = cv2.resize(image, (700,700), interpolation = cv2.INTER_AREA)
-	        #cv2.imwrite(filename,resized_to7)
-
-
+    if filename.endswith(".png"):
+        image = cv2.imread(filename)
+        (height, width) = image.shape[:2]
+        if height<550 or height >950 or width<550 or width<950:
+        # if (height!=700) and (width!=700) or ((height!=700) and (width!=933)):
+	        resized_to7 = cv2.resize(image, (700,933), interpolation = cv2.INTER_AREA)
+	        cv2.imwrite(filename,resized_to7)
 
 
 
