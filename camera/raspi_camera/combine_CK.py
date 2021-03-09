@@ -1,10 +1,5 @@
-'''
-Send data from Pi to Teensy:
-Kelly: Detected Object # from 0-7, degrees for the water sprayer to turn to spray it
-Chad:  Distance (inches) (Arduino converts to cm) of any biggest red object [currently init by setting it ~24 inches away]
--still need to add start on startup
--make sure distance from red inits correctly (sometimes doesn't, and .py needs to be reset to work)
-'''
+#To run our camera script to detect 8 objects, degrees to turn and spray, distance from largest colored object, and send all 3 data to Teensy via I2c
+
 # Import packages
 import os
 import argparse
@@ -21,25 +16,21 @@ block=[]            # orig data read by TF; added by .append()
 addr = 0x8          #for i2c bus address
 bus = SMBus(1)      #for i2c using ic2-1 rather than ic2-0 port
 c=0                 #for mapping coordinate of obj
-data_bet= [0,0,0]   #zeros init final data [] to send over
+data_bet= [0,0]   #init final data [] to send over
 flag=0              #see if there is a detection or not
+
+print("starting camera program")
 
 
 def send_to_pi(data):
-    #data=[c,"potted plant"] #EXAMPLE INPUT DATA
-    #take 3 pieces of data, send to pi via i2c
-    #1st bit: if data is available
-    #2-4th bit: name of detected obj
-    #5-12th bit: coord of obj in degrees for sprayer    
-
-    data_arr = ['0000','0000','0000'] #init byte array, size 3
+ # ex. data=[8,"potted plant"]
+    data_arr = ['0000'] #init byte array, b[16:19] in final array near end (since we send as byte, b[20:23] is unused)
     if (data[0] )==0:
-        return [0,0,0]      #tells Teensy not to read empty data
+        return [0,0]      #flag tells pi not to send empty degr/name data
     else:
-        data_arr[0] =(format(0x8,'04b')) #puts a 1 on left-most bit to show info is coming 
+        data_arr[0] =(format(0x8,'04b')) #puts a 1 flag on bit 11 to show info is coming 
                                          #(optional: bin to see array in print funct)
-
-        #map obj names to a string of 4bit binary for ea of 8 obj classes ex.(0000 or 0001)
+        #assign obj string names to specific string of binary (for ea of 8 obj classes ex.(000 or 001))
         obj= (data[1][:2]) 
         if obj=="ze":
             obj=(format(0x00,'04b'))
@@ -59,35 +50,15 @@ def send_to_pi(data):
             obj=(format(0x07,'04b'))
         else:
             print("Madam, something's wrong, this isn't an avaliable object.")
-
-        #first 4 bits: fstring (faster than format) to complete binary string 
-        #combine bits: to create (1st for availablility, last 3 for object name)
+        
+            #bit[11:8]= fstring (faster than format) to complete binary string 
+            #combine bits: to create (b11 for K pidata availablility, b[8:10] for object name)
         data_arr[0] = f"{(int(data_arr[0],2) | int(obj,2)):b}" #aka f"{insert int(string bit | object bit):b}" aka format(c, "b")
+    #convert string binary to int    
+        data_bet[0] = (int(data_arr[0],2))
+        data_bet[1] = data[0]
         
-        #for obj coord. create bin string size 8bits, this goes last in final bits
-        coord=data[0]
-        bin_coord=(format(coord,'08b'))  
-        
-        #concatenate entire binary string of info
-        it=1                #iteration number, happens 2x for the 1 byte coordinates takes up
-        c=0                 #counts for 4 bits per set of bits (2 sets for 1 byte)
-        temp_byt=''
-        for v in bin_coord: #iterable string ! :D
-                            #for the first 4 take it, then next 4 
-                            #save and add to bin string until reached 3rd set then export as a byte to datat_array
-            temp_byt=temp_byt+v
-            c=c+1
-            if c==4:
-                c=0
-                data_arr[it]= temp_byt
-                it=it+1
-                temp_byt=''                
-
-        #convert to decimal form to send to pi
-        for byttte in data_arr: 
-            data_bet[c]= (int(byttte,2))  #optionally: for hex string, wrap hex outside of int
-            c=c+1
-    return data_bet
+        return data_bet
 
 
 
@@ -99,7 +70,7 @@ def send_to_pi(data):
 # Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
-    def __init__(self,resolution=(640,480),framerate=40):
+    def __init__(self,resolution=(640,480),framerate=30):
     #is the lowest supported resolution already!
 
         # Initialize the PiCamera and the camera image stream
@@ -142,8 +113,8 @@ class VideoStream:
 def find_marker(image):
         # convert the image to grayscale, blur it, and detect edges
         color = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lowred = np.array([161, 155, 84])
-        highred = np.array([179, 255, 255])
+        lowred = np.array([0, 0, 168])  #red [161, 155, 84]
+        highred = np.array([172, 111, 255])  # red [179, 255, 255]
         redmask = cv2.inRange(color, lowred, highred)
         #color = cv2.GaussianBlur(redmask, (5, 5), 0)
         #edged = cv2.Canny(redmask, 100, 200)
@@ -254,6 +225,7 @@ focalLength = 1170.6
 newim = 0
 pastim = 0
 
+current_score=0
 #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
 while True:
 
@@ -285,7 +257,7 @@ while True:
     # Loop over all detections and draw detection box if confidence is above minimum threshold
     flag=0   #init flag for sending to i2c
     for i in range(len(scores)):
-        cv2.line(frame, (xmid, 0),(xmid,900), (255,255,0),5 ) #this makes sure the line stays after image has disappeared
+        #cv2.line(frame, (xmid, 0),(xmid,900), (255,255,0),5 ) #this makes sure the line stays after image has disappeared
         
         if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
             flag=1 #there is obj detected
@@ -297,33 +269,33 @@ while True:
             xmax = int(min(imW,(boxes[i][3] * imW)))
             xmid = int((xmin+xmax) /2)
             # MAP Xmid Coordinate TO DEGREES [for water sprayer to spray (by using interpolation)]
-            c=int(np.interp(xmid, (0, 640), (0, 180)) )
-            #print(xmid, "Xmiddle")
-            #print(c, "convert to degrees")
+            c=int(np.interp(xmid, (0, 640), (25, 175)) ) #originally 0 to 180 but don't want to hit other equipment, so lowered to #s closer to 35 to 165, since it goes from the middle of an object, these numbers work
+            print(c, "degrees")
             block.clear()
             block.append(c)
-            cv2.line(frame, (xmid, 0),(xmid,900), (255,255,0),5 ) #draw the blue line down center of detected obj.
+            #cv2.line(frame, (xmid, 0),(xmid,900), (255,255,0),5 ) #draw the line down center
 
             cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
 
             # Draw label
             object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
             label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
+            current_score=scores[i]*100
             labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
             label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
             cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
             cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
             print(label) #or if only want name print object_name
-            block.append(object_name)
+            block.append(object_name)            
 
 
     # Draw framerate in corner of frame
     cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-    cv2.putText(frame,'FPS for detection: {0:.2f}'.format(frame_rate_calc2),(30,75),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-
+    
+    
     #convert, then send data over w i2c
     if (flag==0):
-        block=[0,"placeholder"] #set flag for leftmost msb bits to 0, don't do more math
+        block=[0,"placeholder"] #set flag for leftmost bits to 0, don't do more math
     dec_list = send_to_pi(block)
     
     marker = find_marker(frame)
@@ -334,26 +306,44 @@ while True:
         inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
         # draw a bounding box around the image and display it
         newim = int(inches * 2.54)
-        if pastim == 0:
-            pastim = newim
-        else:
-            if abs(pastim - newim) < 5:
-                pastim = newim
-            else:
-                pastim = pastim
+        if newim>=150:
+            newim=0
+        #if pastim == 0:
+        #    pastim = newim
+        #else:
+        #if abs(pastim - newim) < 5: #else:
+        pastim = newim
         box = cv2.cv.BoxPoints(marker) if imutils.is_cv2() else cv2.boxPoints(marker)
         box = np.int0(box)
         cv2.drawContours(frame, [box], -1, (0, 255, 0), 2)
-        cv2.putText(frame, "%.2fin" % (pastim),(frame.shape[1] - 300, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
+        
+        cv2.putText(frame, "%.2fcm" % (pastim),(frame.shape[1] - 300, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 3)
     
-    if pastim>=256 or marker==0:
-	    pastim=0
-    dec_list.append(pastim)
-    print(dec_list, "DEC_LIST SHOULD ALSO HAVE CHAD'S DIST in list[3] \n")
-    msg = i2c_msg.write(addr,dec_list)
-    bus.i2c_rdwr(msg)
-    time.sleep(.3)
-    dec_list.pop(3)
+    
+    dec_list.append(newim)
+    print(dec_list, "DEC_LIST SHOULD ALSO HAVE CHAD'S DIST")
+    
+    
+    #if Kelly's current detected threshold>65%, send data to pi, else send nothing. Even if only Chad's distance from obj is detected.
+    if ((current_score > 65) and (flag==1)) :
+        try:
+            msg = i2c_msg.write(addr,dec_list)
+            bus.i2c_rdwr(msg)
+            time.sleep(.1)
+            print("try succeed hopefully")
+        except:                                 # to handle i2c remote i/o error, just wait and try again
+            time.sleep(.3)
+            msg = i2c_msg.write(addr,dec_list)
+            bus.i2c_rdwr(msg)
+            time.sleep(.1)
+            print("try failed...")
+    else:
+        print("TF Object detector saw nothing")
+    
+    print(flag, "flag number")
+    print("\n")
+    last_block=dec_list.copy()
+    dec_list.pop(1)
     
     
     # All the results have been drawn on the frame, so it's time to display it.
@@ -363,13 +353,15 @@ while True:
     t2 = cv2.getTickCount()
     time1 = (t2-t1)/freq
     frame_rate_calc= 1/time1
-
+    print('Current FPS: {0:.2f}'.format(frame_rate_calc))
+    
     # Press 'q' to quit
     if cv2.waitKey(1) == ord('q'):
-        print('FPS: {0:.2f}'.format(frame_rate_calc))
+        print('Final FPS: {0:.2f}'.format(frame_rate_calc))
         break
 
-print(block, " BLOCK LIST ")
+
+print(last_block, " Final BLOCK LIST ")
 # Clean up
 cv2.destroyAllWindows()
 videostream.stop()

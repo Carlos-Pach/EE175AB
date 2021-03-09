@@ -1,8 +1,13 @@
-/*
-RECEIVE DATA FROM PI: obj_num_g, degrees_g, c_dist_g (call in outside function ex. printPi)
-*/
+
 //https://dronebotworkshop.com/i2c-arduino-raspberry-pi/
 // https://roboticsbackend.com/raspberry-pi-master-arduino-slave-i2c-communication-with-wiringpi/
+/*
+RECEIVE DATA FROM PI: obj_num_g, degrees_g, c_dist_g (call in outside function ex. printPi)
+-three bytes received:
+ex.
+1111 1111 | 1111 1111 | 1111 1111
+b23        b15         b7       b0
+*/
 #include <Wire.h>
 #define SLAVE_ADDRESS 0x08
 
@@ -11,10 +16,8 @@ RECEIVE DATA FROM PI: obj_num_g, degrees_g, c_dist_g (call in outside function e
 //1. obj_num_g , 2. degrees_g , 3. c_dist_g;
 //1. object detected number 2. degree turn for water sprayer (0-180) 3. Distance from largest red object
 
-
-volatile unsigned char buf[8] = "";     //recieves pi info
-volatile unsigned int arr[4]; // ={0};   //convert buf array to int() IMP! TO ASSIGN TO EMPTY ARRAY OR COULD GET RANDOM NUMBERS FOR DIFF INDEXES
-
+volatile unsigned char buf[6] = "";     //recieves pi info
+volatile unsigned int arr[3]; // ={0};   //convert buf array to int() IMP! TO ASSIGN TO EMPTY ARRAY OR COULD GET RANDOM NUMBERS FOR DIFF INDEXES
 const int ledPin = 13; 
 
 void setup() {
@@ -37,23 +40,17 @@ void loop() {  delay(1000); }  //250
       digitalWrite(ledPin, LOW);
       for(volatile int i=0; i<byteCount; i++){
          buf[i] = Wire.read();
-         //Serial.print(buf[2], DEC);
-        arr[i]=int(buf[i]);
+         arr[i]=int(buf[i]);
        }
       
-      //if if 1 in the first 4 bits of ex. 1000, then run script, else skip.
+      //if bit[19]==1, then run script, else skip.
       if ((arr[0] & 8)==8 ){
-        volatile unsigned int lsb=0;
         //2. Kelly's Degrees for water sprayer to turn (0-180)
-          degrees_g=0;
-          degrees_g= 0x00 | arr[1]<<4;
-          if (arr[2]>50){ //just in case of outlier #s, optional
-             lsb = 1; }
-          else { lsb = arr[2]; }
-          degrees_g= degrees_g | lsb;          
+        //bits[8:15]
+          degrees_g=arr[1];        
         
     //1. Kelly's Object Number
-    //on first 4 bits, bit mask last 3 bits, so ex. 0111, each number 0-7 corresponds to a hard-coded char string array name: ex. raccoon 
+    //bits[16:18] each number 0-7 corresponds to a hard-coded char string array name: ex. raccoon 
         obj_num_g= arr[0] & 7; 
         
         if (obj_num_g==7){
@@ -83,8 +80,8 @@ void loop() {  delay(1000); }  //250
       degrees_g, obj_num_g = 0;  }  
       
       //3. Chad's Distance from red object inches, so convert to cm first
-      c_dist_g=0;
-      c_dist_g = float(arr[3]*(2.54));
+      //c_dist_g=0;
+      c_dist_g = arr[2];
     
 // @CARLOS: Refer obj_num_g to corresp. name of object commented up above 
   printPi(degrees_g, c_dist_g, obj_num_g);
@@ -99,7 +96,32 @@ void printPi( volatile unsigned int& degr, volatile float& c_di, volatile unsign
   // for obj_n_g ==0, AND degr==0,==> nothing detected, BUT:
   //if obj_n==0 && degrees==True (exists), then => 'zero' SOMETHING detected)
   Serial.print("detected obj: ");
-  Serial.print(obj_num_g);
+  // Serial.print(obj_num_g);
+          if (obj_num_g==0) {
+            Serial.print(obj_num_g);
+            Serial.print( " zero");}
+          else if (obj_num_g==1){
+            Serial.print(obj_num_g);
+            Serial.print( " one");}
+          else if (obj_num_g==2){
+            Serial.print(obj_num_g);
+            Serial.print( " two");}
+          else if (obj_num_g==3){
+            Serial.print(obj_num_g);
+            Serial.print( " three");}
+          else if (obj_num_g==4){
+            Serial.print(obj_num_g);
+            Serial.print( " squirrel");}
+          else if (obj_num_g==5){
+            Serial.print(obj_num_g);
+            Serial.print( " raccoon");}
+          else if (obj_num_g==6){
+            Serial.print(obj_num_g);
+            Serial.print( " person");}
+          else if (obj_num_g==7){
+            Serial.print(obj_num_g);
+            Serial.print( " potted plant");}
+          else { } 
   Serial.print("\n degrees_g to turn water sprayer: ");
   Serial.print(degr);
   Serial.print("\n Object Avoidence, aka distance from red obj: ");

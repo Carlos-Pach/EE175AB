@@ -1,10 +1,10 @@
 !!!Make sure you do this in your venv!!! 
 -----------------------------------------------------------------------------
---> (CURRENT CODE) combine_CK.py and .ino for current script with i2c 
+--> (CURRENT CODE with debugging!) combine_CK.py and .ino for current script with i2c 
 
-		(later final file names):
-		--> camera_kellyonly.py (only has camera script + i2c for degrees, object detected)
-		--> finalcamera_KD_CW.py (has above + Chad's distance from biggest red object sent in i2c to arduino/teensy)
+		(Code w/o Showing camera window to viewer: faster fps!):
+		--> no_gui.py (cv2.imshow() commented out, etc.)
+
 
 ==============================================================================
 ==============================================================================
@@ -36,13 +36,9 @@ python3 TFLite_detection_webcam.py --modeldir=TFLite_model --resolution=640x480
 -----
 use above to test, then use below to check with more code + connect to i2c or will get error.
 replace TFLite_detection_webcam.py with ...
+		-->no_gui.py   (faster, but doesn't show you camera view)
+		--)combine_CK.py (best for debugging)
 
-CHANGE LATER::: 
-		--> (Currently) combine_CK.py and .ino for current script with i2c 
-
-		(@ END)
-		--> camera_kellyonly.py (only has camera script + i2c for degrees, object detected)
-		--> finalcamera_KD_CW.py (has above + Chad's distance from biggest red object sent in i2c to arduino/teensy)
 ===========================================================
 ===========================================================
 
@@ -68,3 +64,4 @@ Can't open opencv, etc., mismatch for permissions or versions ?
 Remote I/O error
 	^ Happens once in a while, not sure why. Maybe sudden outlier values may throw errors. Looking into.
 	^Make sure Arduino has fully updated script, or else could get this error too if you run too early.
+	^Either wire issues with resistors/interferences/clock speed, soln: add quick timer.sleep after i2c, only send i2c when needed., use try except to restart i2c.
