@@ -12,9 +12,7 @@
 
     Notes/TO DO: (1) I2C works
                     (a) Wait for Kelly and Chad to finish their I2C transmission code
-                 (2) finish water gun function/SM
-                    (a) Solve problem/bug when gun activates the BT module turns off
-                        and remains off
+                 (2) Switch motor 1 pwm pin from 6 to 10?
 
 */
 
@@ -26,29 +24,26 @@
 #include <EEPROM.h>
 
 // define macros
-#define pinA0         0     // analog read (pin 14)
+//#define pinA0         0     // analog read (pin 14)
 #define RxPin         0     // RX1 (pin 0/digital)
 #define TxPin         1     // TX1 (pin 1/digital)
 #define trigPin       2     // trigger pin (pin 2)
 #define echoPin       3     // echo pin (pin 3)
 #define HX711_DOUT    4     // HX711 dout pin (pin 4)
 #define HX711_SCK     5     // HX711 sck pin (pin 5)
-#define MOTOR_1_PWM   6     // Motor 1 PWM pin (pin 6)
-#define SQUIRT_MOTOR  7     // Motor for squirt gun (pin 7)
 #define DIAGNOSE_LED  8     // startup code LED (pin 8)
 #define pin10_PWM     10    // pin 10 (PWM)
-#define MOTOR_1A_PIN  11    // motor 1A pin (pin 11)
-#define MOTOR_1B_PIN  12    // motor 1B pin (pin 12)
 #define ledPin        13    // pin 13 (built-in LED)
 #define buttonPin     15    // pin 15 (analog 1) 
+#define SQUIRT_MOTOR  16     // Motor for squirt gun (pin 16)
 #define i2cPinSCL     19    // pin 19 (SCL0)
 #define i2cPinSDA     18    // pin 18 (SDA0)
 #define MOTOR_2_PWM   20    // PWM motor 2 pin (pin 20)
 #define MOTOR_2B_PIN  21    // motor 2B pin (pin 21)
 #define MOTOR_2A_PIN  22    // motor 2A pin (pin 22)
-#define servoPin      23     // servo (pin 9)
+#define servoPin      23    // servo (pin 23)
 // Pins not used:
-// 9, 16-17
+// 6-7, 9, 11-12, 14, 16-17
 
 
 #define NUM_PLANTS    3     // number of plants to water
@@ -74,10 +69,6 @@ typedef struct distKNN{
 
 tKNN approxDistKNN[10], distanceRead ; // amount of test points
 
-typedef struct controllerPI{  // PI controller value struct
-  uint16_t prop ;
-  uint16_t integ ;
-} tPI ;
 
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
@@ -85,7 +76,6 @@ typedef struct PlantData{
   int desiredVal ;   // desired water level for respective plants
   PLANT_PRIORITY priority ;   // determines priority of plants
   Bool isWatered ;   // determine if plant has already been watered
-  tPI valPI ;   // proportional and integ members from controllerPI struct
 } tPlantData ;
 
 tPlantData plants[NUM_PLANTS] ; // number of plants to water
@@ -213,17 +203,29 @@ Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig_g = False ;    // determines when to stop water nozzle
 Bool isPlant_g = False ;    // detects plant from RPi
 Bool isObject_g = False ;   // detects object from RPi
+Bool objectDetected_g = False ; // True when isPlant_g OR isObject_g is true
+Bool withinRange_g = False ;  // determines if object detected is within range (only dead ahead of car)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
+Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
 
+// data from RPi
 volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g ; // distance calculated by Teensy
 volatile unsigned char angleRPi_g ; // angle from RPi
+
+// values for RC car
 unsigned int valPWM_g ; // PWM output value
+const int carVeloc_g = 440 ;  // velocity of car (can be changed later)
+
+// values for weight sensor
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
 long t ;  // time elapsed for LoadCell
-const int carVeloc_g = arrPWM[2] ;  // velocity of car (can be changed later)
-const float expectedMass_g = 440.0 ;  // expected mass of weight sensor (can be changed later)
+const float expectedMass_g = 750.0 ;  // expected mass of weight sensor (can be changed later)
 const float minMass_g = 50.0 ; // minimum mass needed until refill is necessary (can be changed later)
+
+// values for water gun
+const unsigned char minDeg_g = 35 ; // minimum angle of servo motor
+const unsigned char maxDeg_g = 165 ;  // maximum angle of servo motor
 
 // i2c vars ... may change
 int degrees = 0 ;
@@ -254,6 +256,7 @@ void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending
 void bubbleSortPlant(void) ;
 float measureMass(void) ;  // measures current mass of weight sensor
 void initKNN(void) ;  // inits KNN training data
+Bool compareDistance(void) ;  // compares distance measured by Teensy and RPi
 /* end function prototypes */
 
 
@@ -327,7 +330,7 @@ int TickFct_LEDs(int state){
     case SM2_init:
       break ;
     case SM_onLED:
-      valPWM_g = analogRead(pinA0) ;
+      //valPWM_g = analogRead(pinA0) ;
       Serial.print("DEBUG STATEMENT: valPWM_g = ") ; Serial.println(valPWM_g) ;
       outputPWM(valPWM_g, pin10_PWM) ; // turn LED on
       break ;
@@ -335,7 +338,7 @@ int TickFct_LEDs(int state){
       Serial.println("DEBUG STATEMENT: offLED action") ;
       // remove bottom statement so binSearch wont be called every time
       //outputPWM(0, pin10_PWM) ;           // turn off LED (pin 10)
-      valPWM_g = analogRead(pinA0) ;  // update valPWM_g to test motor speed changes
+      //valPWM_g = analogRead(pinA0) ;  // update valPWM_g to test motor speed changes
       analogWrite(pin10_PWM, 0) ; // turn off LED (pin 10)
       break ;
     default:
@@ -356,25 +359,17 @@ int TickFct_servos(int state){
       
       // ready up motors
       for(i = 0; i < 10; i++){  // turn on motor 1A and 2B to go forward
-        digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-        outputPWM(510, MOTOR_1_PWM) ; delay(5) ; // turn on motor ... valPWM_g --> carVeloc_g --> 510
-        outputPWM(carVeloc_g, MOTOR_2_PWM) ; delay(5) ; // turn on motor ... valPWM_g --> carVeloc_g
+        analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(5) ;
       }
+      
+      jumpStart_g = False ; // motors already turning
       break ;
-    case SM3_turnOffServo:
-      if(!buttonPressed_g){ /* if button is not pressed */
-        state = SM3_turnOffServo ;  
-      } else{
-        state = SM3_turnOnServo ;  
-      }
+    case SM3_turnOffServo:  // always in this state
+      state = SM3_turnOffServo ;
       break ;
     case SM3_turnOnServo:
-      if(!buttonPressed_g){ /* if button is not pressed */
-        state = SM3_turnOffServo ;  
-      } else{
-        state = SM3_turnOnServo ;  
-      }
+      state = SM3_turnOffServo ;
       break ;
     default:
       Serial.println("DEBUG STATEMENT: default case") ;
@@ -387,34 +382,48 @@ int TickFct_servos(int state){
     case SM3_turnOffServo:
       #if 0
         // turn off motors
-        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
       #endif
 
       if(distTeensy_g > 50){  // object not in range yet
         // go forwards
         Serial.println("Forward") ;
-        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
+        //digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
         digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
 
-        outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ; // valPWM_g --> carVeloc_g
+        // check if motors need to jump start
+        if(jumpStart_g){
+          for(i = 0; i < 10; i++){
+            outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+            delay(5) ;
+          }
+        }
         outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+        jumpStart_g = False ;
       } else if(distTeensy_g < 30){  // object out of range
         // go backwards 
         Serial.println("Backwards") ;
-        digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+        //digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
 
-        outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
+        // check if motors need to jump start
+        if(jumpStart_g){
+          for(i = 0; i < 10; i++){
+            outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+            delay(5) ;
+          }
+        }
+
+        //outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
         outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+        jumpStart_g = False ;
       } else{   // object within range
         // stay still
         Serial.println("Still") ;
-        digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-
-        outputPWM(0, MOTOR_1_PWM); delay(10) ;
         outputPWM(0, MOTOR_2_PWM); delay(10) ;
+
+        jumpStart_g = True ;
       }
       
       break ;
@@ -424,45 +433,48 @@ int TickFct_servos(int state){
          using fixed point arithmetic, do (ADC_value*10)/(57) to get ~180 (max) */
       #if 0
         for(i = 0; i < 100; i++){ // control motor (backwards)
-          digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
+          //digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
           //myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ; // controls front motor
           //myServo.write(90) ;
           digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-          outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
+          //outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
           outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ;
         } delay(10) ;
         
         for(i = 0; i < 100; i++){  // control motor (forwards)
-          digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
+          //digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
           //myServo.write((int)((10 * valPWM_g)/57)) ; delay(5) ; // controls front motor
           //myServo.write(90) ;
-          outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
+          //outputPWM(valPWM_g, MOTOR_1_PWM) ; delay(5) ;
   
           digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
           outputPWM(valPWM_g, MOTOR_2_PWM) ; delay(5) ;
         } delay(10) ;
         
         for(i = 0; i < 250; i++){  // steering direction
-          digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+          //digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
           digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
-          outputPWM(90, MOTOR_1_PWM) ; delay(10) ;  // 1023 --> 90
+          //outputPWM(90, MOTOR_1_PWM) ; delay(10) ;  // 1023 --> 90
           outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
         } delay(10) ;
       #endif
 
-      // control steering
-      for(i = 0; i < 10; i++){
-        digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
-        outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
-        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-        outputPWM(0, MOTOR_2_PWM); delay(5) ;
-      }
-      for(i = 0; i < 10; i++){
-        digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
-        outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
-        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-        outputPWM(0, MOTOR_2_PWM); delay(5) ;
-      }
+      #if 0
+        // control steering
+        for(i = 0; i < 10; i++){
+          //digitalWrite(MOTOR_1A_PIN, HIGH); digitalWrite(MOTOR_1B_PIN, LOW) ;
+          //outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
+          digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+          outputPWM(0, MOTOR_2_PWM); delay(5) ;
+        }
+        for(i = 0; i < 10; i++){
+          //digitalWrite(MOTOR_1A_PIN, LOW); digitalWrite(MOTOR_1B_PIN, HIGH) ;
+          //outputPWM(512, MOTOR_1_PWM); delay(5) ; // 750 --> 900 (goes left)
+          digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+          outputPWM(0, MOTOR_2_PWM); delay(5) ;
+        }
+      #endif
+      
       break ;
     default:
       break ;
@@ -543,7 +555,7 @@ int TickFct_HC05(int state){
 
       //i = 0 ;
       //Serial.print("DEBUG STATEMENT: BT.read(): ") ;
-      /* get string from BT buffer */
+      // get string from BT buffer
       #if 0
         while(numBytes > 0){  // count chars from buffer
             arr[i] = BT.read() ;
@@ -622,11 +634,6 @@ int TickFct_HC05(int state){
       if((plants[0].data > 0) && (plants[1].data > 0) && (plants[0].data > 0)){
         // sort plant priority
         bubbleSortPlant() ;
-        // calculate prop and integ vals for plants
-        for(i = 0; i < NUM_PLANTS; i++){
-          plants[i].valPI.prop = calculateError(plants[i].desiredVal, plants[i].data) ;
-          plants[i].valPI.integ = calculateInteg(plants[i].valPI.prop, plants[i].valPI.integ) ;
-        }
       }
       
       delay(100) ;
@@ -789,95 +796,6 @@ int TickFct_waterGun(int state){
   static int theta = 90 ;
   static unsigned char errCnt = 0 ;
   
-  #if 0   // change to 1 to activate code
-  switch(state){  // state transitions
-    case SM7_init:
-      calibration(); //start calibration procedure
-      delay(5000) ;
-      state = SM7_wait ;
-      break ;
-    case SM7_wait:
-//      if(turnOnGun_g == False){ // stay in wait state
-//        state = SM7_wait ;  
-//      } else if(!(turnOnGun_g == False)){ // go to activate gun state
-//        state = SM7_activateGun ;  
-//      }
-      // use this statement until weight sensor is finished
-
-      if(buttonPressed_g == True){
-        state = SM7_activateGun ;
-      } else{
-        state = SM7_wait ;  
-      }
-      break ;
-    case SM7_activateGun:
-      if(buttonPressed_g == True){  // stay in activate gun state
-        state = SM7_activateGun ;  
-      } else if(!(cnt < 5)){  // go to deactivateGun state
-        state = SM7_deactivateGun ;  
-      }
-      break ;
-    case SM7_deactivateGun:
-      if(cnt < 20){       // stay in deactive state
-        state = SM7_deactivateGun ;  
-      } else if(!(cnt < 20)){ // go to water measuring state
-        state = SM7_measureWeight ;  
-      }
-      break ;
-    case SM7_measureWeight:
-      if(waterMeasured_g == False){ // stay in measuring state
-        state = SM7_measureWeight ;  
-      } else{           // go to wait state
-        state = SM7_wait ;  
-      }
-      break ;
-    default:
-      state = SM7_init;
-      break ;
-  }
-  switch(state){  // state actions
-    case SM7_init:
-      waterMeasured_g = False ;
-      cnt = 0 ;
-      break ;
-    case SM7_wait:
-      Serial.println("DEBUG STATEMENT: SM7_wait") ;
-      //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
-      cnt = 0 ;
-      //calibration(); //start calibration procedure ... uncomment later
-      //delay(5000) ;
-      break ;
-    case SM7_activateGun:
-      Serial.println("DEBUG STATEMENT: SM7_activateGun") ; 
-      // function to squirt the water gun
-      //myServo.write((int)((10 * valPWM_g)/57)) ; delay(20) ; // controls servo motor for water gun
-      for(i = 0; i < 10; i++){
-        digitalWrite(SQUIRT_MOTOR, HIGH) ;
-        delay(20) ;
-        digitalWrite(SQUIRT_MOTOR, LOW) ;
-        delay(20) ;
-      }
-      delay(1000) ;
-      cnt++ ; // increase cnt
-      break ;
-    case SM7_deactivateGun:
-      Serial.println("DEBUG STATEMENT: SM7_deactivateGun") ;
-      cnt++ ;
-      __asm("nop") ;
-      break ;
-    case SM7_measureWeight:
-      Serial.println("DEBUG STATEMENT: SM7_measureWeight") ;
-      // function to measure water tank capacity
-      mass = measureMass() ;
-      waterMeasured_g = True ;
-      Serial.print("Mass = "); Serial.println(mass) ;
-      delay(5000) ; // REMOVE LATER
-      break ;
-    default:
-      break ;
-  }
-  #endif
-
   switch(state){  // state transitions
     case SM7_init:
       state = SM7_wait ;
@@ -957,7 +875,7 @@ int TickFct_waterGun(int state){
       digitalWrite(SQUIRT_MOTOR, LOW) ;
       break ;
     case SM7_waterPlant:
-      myServo.write(theta) ;
+      myServo.write(minDeg_g) ;
       for(i = 0; i < 3; i++){  // squirt the gun
         digitalWrite(SQUIRT_MOTOR, HIGH) ;
         delay(10) ;
@@ -973,7 +891,6 @@ int TickFct_waterGun(int state){
     case SM7_ERROR:
       digitalWrite(DIAGNOSE_LED, HIGH) ;
       errCnt++ ;
-      delay(5000) ;   // remove after testing
       break ;
     default:
       state = SM7_init ;
@@ -1043,12 +960,12 @@ void setup() {
   digitalWrite(DIAGNOSE_LED, HIGH) ;
   
   // set up motors
-  pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
-  pinMode(MOTOR_1B_PIN, OUTPUT) ; // controls motor 1B
+  //pinMode(MOTOR_1A_PIN, OUTPUT) ; // controls motor 1A
+  //pinMode(MOTOR_1B_PIN, OUTPUT) ; // controls motor 1B
   pinMode(MOTOR_2A_PIN, OUTPUT) ; // controls motor 2A
   pinMode(MOTOR_2B_PIN, OUTPUT) ; // controls motor 2B
   
-  pinMode(MOTOR_1_PWM, OUTPUT) ;  // sets up front motor PWM
+  //pinMode(MOTOR_1_PWM, OUTPUT) ;  // sets up front motor PWM
   pinMode(MOTOR_2_PWM, OUTPUT) ;  // sets up rear motor PWM
   
 
@@ -1084,7 +1001,7 @@ void setup() {
   
   if (LoadCell.getTareTimeoutFlag()) { // check if pins were correct
     Serial.println("Timeout, check MCU>HX711 wiring and pin designations") ;
-    //while(1) ;  // stay in loop until error is corrected
+    while(1) ;  // stay in loop until error is corrected
   } else {  // set up pins were correct 
     //LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
     LoadCell.setCalFactor(calibrationValue) ;
@@ -1092,13 +1009,17 @@ void setup() {
   }
   
   while (!LoadCell.update()); // wait until load cell updates
-  // finish HX711
+  // finished HX711
   
   
   // set up servo
   myServo.attach(servoPin) ;  // attaches the servo on pin 9 to servo object
   myServo.write(0) ;         // initialize position to 0 degrees
-  delay(20) ; // delay for 20 [ms] to complete period
+  delay(500) ; // test servo motor movement
+  myServo.write(minDeg_g) ; // test minimum angle
+  delay(500) ;
+  myServo.write(maxDeg_g) ; // test maximum angle ;
+  delay(500) ;
   
   
   // set up BT module pins
@@ -1174,24 +1095,18 @@ void setup() {
   plants[0].desiredVal = 0.75 * 1023 ;
   plants[0].isWatered = True ;
   plants[0].priority = low ;
-  plants[0].valPI.prop = 0 ;
-  plants[0].valPI.integ = 0 ;
 
   plants[1].plantNum = Plant_1 ;
   plants[1].data = 0 ;
   plants[1].desiredVal = 0.5 * 1023 ;
   plants[1].isWatered = True ;
   plants[1].priority = medium ;
-  plants[1].valPI.prop = 0 ;
-  plants[1].valPI.integ = 0 ;
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
   plants[2].desiredVal = 0.3 * 1023 ;
   plants[2].isWatered = True ;
   plants[2].priority = high ;
-  plants[2].valPI.prop = 0 ;
-  plants[2].valPI.integ = 0 ;
 
   initKNN() ;
   
@@ -1447,63 +1362,70 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 */
 
 void event(int byteCount){
-  //Serial.println("DEBUG STATEMENT: event") ;
-
-//  while(Wire.available()){  // read from I2C bus
-//    distRPi_g = Wire.read() ; // read approx distance calculated
-//  }
+  
   while(Wire.available()) {               //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
-      for(int i=0; i<byteCount; i++){
+      for(int i = 0; i < byteCount; i++){ // place read bytes into array
         arr[i] = Wire.read();
-       Serial.print(arr[i]);
-       Serial.print(" ");
-       }
+        Serial.print(arr[i]);
+        Serial.print(" ");
+      }
+      Serial.print(" \n");
        
-       Serial.print(" \n");
-       if ((arr[0] & 8)==8 ){
-         //take info, do conversions, else, ignore
-         
-          degrees=0;
-          degrees= degrees | arr[1]<<4;
-          degrees= degrees | arr[2];  
-          // degrees= degrees | arr[1]<<8;  //commented out for >3 sets of bits (12) sent thru bus
-          // degrees= degrees | arr[2]<<4;  // this was for 4 sets (2 bytes) but the 4th set 
-          // degrees= degrees | arr[3];     //and beyond inits to 0 so this can't be used
-          
-          Serial.print(degrees);
-          Serial.print(" ");
-          
+     if ((arr[0] & 0x08) == 8){
+       //take info, do conversions, else, ignore
+       
+        degrees=0;
+        degrees= degrees | arr[1]<<4;
+        degrees= degrees | arr[2];  
+
+        angleRPi_g = 0 ;  // reset angle to 0
+        angleRPi_g |= arr[1] << 4 ;
+        angleRPi_g |= arr[2] ;
+
+        // check to see if returned degrees goes above/under max/min angle
+        if(angleRPi_g > maxDeg_g){
+          angleRPi_g = maxDeg_g ;  
+        } else if(angleRPi_g < minDeg_g){
+          angleRPi_g = minDeg_g ;  
+        }
+
+        // degrees= degrees | arr[1]<<8;  //commented out for >3 sets of bits (12) sent thru bus
+        // degrees= degrees | arr[2]<<4;  // this was for 4 sets (2 bytes) but the 4th set 
+        // degrees= degrees | arr[3];     //and beyond inits to 0 so this can't be used
+        
+        Serial.print(degrees);
+        Serial.print(" ");
+        
 
       Serial.print("= degrees, our coordinate!");
-       Serial.print(" \n");
-       
-        class_n= arr[0] & 7; //bit mask left-most number to keep last 3 bits >>1;
-        //Serial.print(class_n);
-        //Serial.print("= was that class num correct?\n");
-           if (class_n==0) {
-             strcpy(name, "zero");}
-           else if (class_n==1){
-             strcpy(name, "one");}
-           else if (class_n==2){
-             strcpy(name, "two");}
-           else if (class_n==3){
-             strcpy(name, "three");}
-           else if (class_n==4){
-             strcpy(name, "squirrel");}
-           else if (class_n==5){
-             strcpy(name, "raccoon");
-             //digitalWrite(ledPin, HIGH);
-             //delay(500);
-             }
-           else if (class_n==6){
-             strcpy(name, "person");}
-           else if (class_n==7){
-             strcpy(name, "potted plant");}
-           else { }
-           Serial.print("class name: ");
-           Serial.print(name);
-           Serial.print("\n");
-       }
+      Serial.print(" \n");
+     
+      class_n = arr[0] & 0x07; //bit mask left-most number to keep last 3 bits >>1;
+      //Serial.print(class_n);
+      //Serial.print("= was that class num correct?\n");
+         if (class_n==0) {
+           strcpy(name, "zero") ;
+         } else if (class_n==1){
+           strcpy(name, "one") ;
+         } else if (class_n==2){
+           strcpy(name, "two") ;
+         } else if (class_n==3){
+           strcpy(name, "three") ;
+         } else if (class_n==4){
+           strcpy(name, "squirrel") ;
+         } else if (class_n==5){
+           strcpy(name, "raccoon") ;
+         } else if (class_n==6){
+           strcpy(name, "person") ;
+         } else if (class_n==7){
+           strcpy(name, "potted plant") ;
+         } else{ 
+            __asm("nop") ;
+         }
+         Serial.print("class name: ");
+         Serial.print(name);
+         Serial.print("\n");
+     }
        
    else{
         Serial.print("nothing! nothing seen of interest, COMMENT OUT\n\n")  ;
@@ -1630,7 +1552,8 @@ void bubbleSortPlant(void){
 
   for(i = 0; i < (NUM_PLANTS - 1); i++){
     for(j = 0; j < (NUM_PLANTS - i - 1); j++){
-      if(plants[j].data/(float)(plants[j].desiredVal) < plants[j+1].data/(float)(plants[j+1].desiredVal)){  // compare plant data/desiredVal ratio
+      // change sign as when plants are watered the ADC value decreases (< --> >)
+      if(plants[j].data/(float)(plants[j].desiredVal) > plants[j+1].data/(float)(plants[j+1].desiredVal)){  // compare plant data/desiredVal ratio
           tempVal = plants[j].priority ;
           plants[j].priority = plants[j+1].priority ;
           plants[j+1].priority = tempVal ;  
@@ -1746,5 +1669,54 @@ void initKNN(void){
   approxDistKNN[9].x = 75 ;
   approxDistKNN[9].y = 90 ;
   approxDistKNN[9].correctDist = False ;
+}
+
+/* 
+  Function name: compareDistance
+  Purpose: Compares calculated distance of Teensy and Pi
+  Details: Compares the distance measured and returns whether or not to 
+           trust the returned value. Since Teensy's sensor is the most accurate,
+           it is a linear function. Check if RPi distance is within a margin of error.
+
+  Parameters:
+    TODO
+  Return value:
+    True/False
+*/
+Bool compareDistance(void){
+  const unsigned char n = 50 ;  // size of arrays we will make
+  signed char num = 0 ;
+  
+  // displacement = 4 ;
+  const signed char fx[n] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,     // f(x) = x (linear)
+                  11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                  21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 
+                  31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 
+                  41, 42, 43, 44, 45, 46, 47, 48, 49 } ;
+  
+  const signed char gx[n] = { 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,   // g(x) = x + displacement
+                  15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 
+                  25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 
+                  35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 
+                  45, 46, 47, 48, 49, 50, 51, 52, 53 } ;
+                  
+  const signed char hx[n] = { -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 
+                  8, 9, 10, 11, 12, 13, 14, 15, 16, 17,    // h(x) = x - displacement
+                  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 
+                  28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+                  38, 39, 40, 41, 42, 43, 44, 45 } ;
+  
+  for(unsigned char i = 0; i < n; i++){ // look for index from fx
+    if(distTeensy_g <= fx[i]){
+        num = i ;
+        break ;
+    }
+  }
+
+  if((hx[num] <= distRPi_g) && (distRPi_g <= gx[num])){   // returns whether or not RPi distance is within margin of error
+    return True ;
+  }
+
+  return False ;
 }
 /* end functions */
