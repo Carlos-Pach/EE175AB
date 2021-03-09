@@ -24,7 +24,6 @@
 #include <EEPROM.h>
 
 // define macros
-//#define pinA0         0     // analog read (pin 14)
 #define RxPin         0     // RX1 (pin 0/digital)
 #define TxPin         1     // TX1 (pin 1/digital)
 #define trigPin       2     // trigger pin (pin 2)
@@ -61,6 +60,7 @@ typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
 
+#if 0
 typedef struct distKNN{
   uint16_t x, y ;   // points on x-y plane (x is teeensy, y is RPi)
   double distance ; // distance from test points 
@@ -68,6 +68,7 @@ typedef struct distKNN{
 } tKNN ;
 
 tKNN approxDistKNN[10], distanceRead ; // amount of test points
+#endif
 
 
 typedef struct PlantData{
@@ -201,9 +202,8 @@ Bool buttonPressed_g = False;    // 0 - not pressed, 1 - pressed
 Bool turnOnGun_g = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig_g = False ;    // determines when to stop water nozzle
-Bool isPlant_g = False ;    // detects plant from RPi
+Bool isPlant_g = False ;    // detects plant from RPi    False --> True (for testing)
 Bool isObject_g = False ;   // detects object from RPi   False --> True (for testing)
-//Bool withinRange_g = False ;  // determines if object detected is within range (only dead ahead of car)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
 
@@ -214,7 +214,7 @@ volatile unsigned char angleRPi_g ; // angle from RPi
 
 // values for RC car
 unsigned int valPWM_g ; // PWM output value
-const int carVeloc_g = 440 ;  // velocity of car (can be changed later)
+const int carVeloc_g = 400 ;  // velocity of car (can be changed later)
 
 // values for weight sensor
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
@@ -254,7 +254,7 @@ void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addr
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
 void bubbleSortPlant(void) ;
 float measureMass(void) ;  // measures current mass of weight sensor
-void initKNN(void) ;  // inits KNN training data
+//void initKNN(void) ;  // inits KNN training data
 Bool compareDistance(void) ;  // compares distance measured by Teensy and RPi
 /* end function prototypes */
 
@@ -351,7 +351,7 @@ int TickFct_LEDs(int state){
 int TickFct_servos(int state){
   static unsigned char i = 0 ; ; // used to control motor for a set duration
   static unsigned int waitCnt = 0 ; // used to reverse out of stuck position
-  const unsigned int maxWaitCnt = 1000 ; // max time to wait in stuck position
+  const unsigned int maxWaitCnt = 50 ; // max time to wait in stuck position
   static volatile Bool objectDetected = False ;  // True when isPlant_g OR isObject_g is True
   static volatile Bool withinRange = False ;  // determines if object detected is within range (only dead ahead of car)
   
@@ -387,36 +387,48 @@ int TickFct_servos(int state){
         // turn off motors
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
       #endif
-
+      #if 0   // TEST CASE
+        distRPi_g = 20 ;
+      #endif
+      
       // determine if an object was detected
       objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
       // determine if an object is straight ahead
       withinRange = compareDistance() ;
 
-      switch(withinRange){
+      switch(withinRange){  // main switch statement for this SM
         case True:
           switch(objectDetected){
             case True:  // stop the car, object is straight ahead
+              Serial.println("DEBUG STATEMENT: withinRange, objectDetected") ;
+              Serial.println("Still") ;
               digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
               outputPWM(0, MOTOR_2_PWM) ;
               break ;
             case False:
+              Serial.println("DEBUG STATEMENT: withinRange, !objectDetected") ;
+              Serial.println("Forward") ;
               digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
               analogWrite(MOTOR_2_PWM, carVeloc_g) ;
               break ;
             default:
+              Serial.println("DEBUG STATEMENT: withinRange, default") ;
               digitalWrite(DIAGNOSE_LED, HIGH) ;
               delay(1000) ;
               break ;
           }
+        break ;
           
         case False:
           switch(objectDetected){
             case True:  // stop the car, object straight ahead
+              Serial.println("DEBUG STATEMENT: !withinRange, objectDetected") ;
+              Serial.println("Still") ;
               digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
               break ;
               
             case False:
+              Serial.println("DEBUG STATEMENT: !withinRange, !objectDetected") ;
               if(distTeensy_g > 50){  // object not in range yet
                 // go forwards
                 Serial.println("Forward") ;
@@ -450,24 +462,33 @@ int TickFct_servos(int state){
                 Serial.println("Still") ;
                 digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
                 outputPWM(0, MOTOR_2_PWM); delay(10) ;
+                
                 jumpStart_g = True ;
+                
                 if(waitCnt >= maxWaitCnt){  // reverse out of stuck position
+                  waitCnt = 0 ;
                   for(int j = 0; j < 25; j++){  // reverse out of stuck position ... change 25 into better number
                     digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
                     analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(10) ;
-                  }  
+                  }
                 }
+                digitalWrite(DIAGNOSE_LED, HIGH) ;
+                waitCnt++ ; // increment waitCnt
+                
               }
-              break ;
+            break ;
               
             default:
+              Serial.println("DEBUG STATEMENT: !withinRange, default") ;
               digitalWrite(DIAGNOSE_LED, HIGH) ;
               digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
               outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
               delay(1000) ;
               break ;
           }
+          break ;
           default:
+            Serial.println("DEBUG STATEMENT: default") ;
             digitalWrite(DIAGNOSE_LED, HIGH) ;
             delay(1000) ;
             break ; 
@@ -1198,7 +1219,7 @@ void setup() {
   plants[2].isWatered = True ;
   plants[2].priority = high ;
 
-  initKNN() ;
+  //initKNN() ;   // init KNN values
   
   // turn off diagnostic LED
   digitalWrite(DIAGNOSE_LED, LOW) ;  
@@ -1721,6 +1742,7 @@ float measureMass(void){
   Return Value:
     None
 */
+#if 0
 void initKNN(void){
   // x is Teensy, y is RPi
   
@@ -1766,6 +1788,7 @@ void initKNN(void){
   approxDistKNN[9].y = 90 ;
   approxDistKNN[9].correctDist = False ;
 }
+#endif
 
 /* 
   Function name: compareDistance
@@ -1808,6 +1831,9 @@ Bool compareDistance(void){
         break ;
     }
   }
+
+  Serial.print("compareDistance: distTeensy_g = "); Serial.println(distTeensy_g) ;
+  delay(1000) ;
 
   // h(x = num) <= distRPi_g <= g(x = num)  ... within margin of error
   if((hx[num] <= distRPi_g) && (distRPi_g <= gx[num])){   // returns whether or not RPi distance is within margin of error
