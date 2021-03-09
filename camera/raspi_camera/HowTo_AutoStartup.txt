@@ -14,7 +14,7 @@ Type in terminal:
 (editing in nano:)
 =================================
 ***note that I put my python interpreter path called 'tflite1env' like below, check and make sure 
-	you have the same path to your venv python3 & script! *** (@ WorkingDirectory & @ExecStart)
+	you have the same path to your venv python3 & scriptname! *** (@ExecStart)
 paste in:
 
 [Unit]
