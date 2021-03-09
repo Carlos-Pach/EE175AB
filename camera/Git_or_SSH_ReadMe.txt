@@ -41,43 +41,43 @@ GITHUB / GIT :
 
 https://devconnected.com/how-to-push-git-branch-to-remote/
 LINKS TO LOOK AT :
-https://stackoverflow.com/questions/36132956/how-to-connect-local-folder-to-git-repository-and-start-making-changes-on-branch
-https://stackoverflow.com/questions/15285332/is-it-possible-to-track-only-a-folder-in-a-git-branch
-https://stackoverflow.com/questions/1279533/is-there-a-way-to-tell-git-to-only-include-certain-files-instead-of-ignoring-cer
-https://stackoverflow.com/questions/12799855/configure-git-to-track-only-one-file-extension
-https://stackoverflow.com/questions/4917472/add-new-local-directory-to-a-git-remote-branch
-https://superuser.com/questions/1412078/bring-a-local-folder-to-remote-git-repo
-https://stackoverflow.com/questions/36132956/how-to-connect-local-folder-to-git-repository-and-start-making-changes-on-branch
+	https://stackoverflow.com/questions/36132956/how-to-connect-local-folder-to-git-repository-and-start-making-changes-on-branch
+	https://stackoverflow.com/questions/15285332/is-it-possible-to-track-only-a-folder-in-a-git-branch
+	https://stackoverflow.com/questions/1279533/is-there-a-way-to-tell-git-to-only-include-certain-files-instead-of-ignoring-cer
+	https://stackoverflow.com/questions/12799855/configure-git-to-track-only-one-file-extension
+	https://stackoverflow.com/questions/4917472/add-new-local-directory-to-a-git-remote-branch
+	https://superuser.com/questions/1412078/bring-a-local-folder-to-remote-git-repo
+	https://stackoverflow.com/questions/36132956/how-to-connect-local-folder-to-git-repository-and-start-making-changes-on-branch
+	HOW TO ADD FILE TO REPO : https://docs.gitlab.com/ee/gitlab-basics/add-file.html )
 
-git status 
-git log (shows commit history)
-(and git status -uno will tell you whether the branch you are tracking is ahead, behind or has diverged. 
-If it says nothing, the local and remote are the same.)
+FOLLOW THESE STEPS TO UPLOAD:
+	git status 
+	git log (shows commit history)
+	(and git status -uno will tell you whether the branch you are tracking is ahead, behind or has diverged. 
+	If it says nothing, the local and remote are the same.)
 
+	git pull origin remotebranch( to get the same files locally at your laptop as the git repo main online)
 
-HOW TO ADD FILE TO REPO : https://docs.gitlab.com/ee/gitlab-basics/add-file.html )
-git pull origin remotebranch( to get the same files locally at your laptop as the git repo main online)
+	git fetch origin (fetches all the remote branches) or git fetch --all
+	git branch -v -a   (look at all branches)
 
-git fetch origin (fetches all the remote branches) or git fetch --all
-git branch -v -a   (look at all branches  )
+	git checkout branchname  
+	(Or do) 
+	git checkout -b kellyBranch origin/kellyBranch 
+		git checkout <non-branch>, for example git checkout origin/test results in detached HEAD / unnamed branch,
+ 		while git checkout test or git checkout -b test origin/test results in local branch test (with remote-tracking branch origin/test as upstream)
 
-git checkout branchname  
-(Or do) 
-git checkout -b kellyBranch origin/kellyBranch 
-	git checkout <non-branch>, for example git checkout origin/test results in detached HEAD / unnamed branch,
- 	while git checkout test or git checkout -b test origin/test results in local branch test (with remote-tracking branch origin/test as upstream)
-
-git add .  (to add all, or do git add filename for individual)
-git commit -m "words"
-	(to undo from commit:)
-	git reset       or git reset --soft HEAD~1 (soft saves changes, hard is permanent, ~# says how many commits back)
-git push -u origin edit_branch_01   #-u option sets up an upstream tracking branch
+	git add .  (to add all, or do git add filename for individual)
+	git commit -m "words"
+		(to undo from commit:)
+		git reset       or git reset --soft HEAD~1 (soft saves changes, hard is permanent, ~# says how many commits back)
+	git push -u origin edit_branch_01   #-u option sets up an upstream tracking branch
 
 
 -------------------------------------------------------------
 ---------------------------------------------------------------------------
 GIT PUSH ERRORS?
-ex.
+ex.	1.
 	PS C:\tensorflow1\EE175AB> git push -u origin kellyBranch
 	Enumerating objects: 39, done.
 	Counting objects: 100% (39/39), done.
@@ -89,7 +89,7 @@ ex.
 	Total 38 (delta 14), reused 0 (delta 0), pack-reused 0
 	fatal: the remote end hung up unexpectedly
 
-	(error 8, which is not really talked about in google searches, so I found alternate solutions like:
+	2. (error 8, which is not really talked about in google searches, so I found alternate solutions like:
 
 	git config --global http.version HTTP/1.1
 	(then git push o branchname again, however gave me a new error that is luckily more documented:

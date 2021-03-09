@@ -110,32 +110,32 @@ class VideoStream:
     # Indicate that the camera and thread should be stopped
         self.stopped = True
         
-def find_marker(image):
-        # convert the image to grayscale, blur it, and detect edges
-        color = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lowred = np.array([0, 0, 168])  #red [161, 155, 84]
-        highred = np.array([172, 111, 255])  # red [179, 255, 255]
-        redmask = cv2.inRange(color, lowred, highred)
-        #color = cv2.GaussianBlur(redmask, (5, 5), 0)
-        #edged = cv2.Canny(redmask, 100, 200)
-        # find the contours in the edged image and keep the largest one;
-        # we'll assume that this is our piece of paper in the image
-        cnts = cv2.findContours(redmask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        cnts = imutils.grab_contours(cnts)
-        if len(cnts) > 0:
-                c = max(cnts, key = cv2.contourArea)
-                return cv2.minAreaRect(c)
-        else:
-        # compute the bounding box of the of the paper region and return it
-                return 0
+#def find_marker(image):
+#        # convert the image to grayscale, blur it, and detect edges
+#        color = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+#        lowred = np.array([0, 0, 168])  #red [161, 155, 84]
+#        highred = np.array([172, 111, 255])  # red [179, 255, 255]
+#        redmask = cv2.inRange(color, lowred, highred)
+#        #color = cv2.GaussianBlur(redmask, (5, 5), 0)
+#        #edged = cv2.Canny(redmask, 100, 200)
+#        # find the contours in the edged image and keep the largest one;
+#        # we'll assume that this is our piece of paper in the image
+#        cnts = cv2.findContours(redmask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+#        cnts = imutils.grab_contours(cnts)
+#       if len(cnts) > 0:
+#                c = max(cnts, key = cv2.contourArea)
+#                return cv2.minAreaRect(c)
+#        else:
+ #       # compute the bounding box of the of the paper region and return it
+ #               return 0
     
-def distance_to_camera(knownWidth, focalLength, perWidth):
-        # compute and return the distance from the maker to the camera
-        if perWidth == 0:
-            return 0
-        else:
-            return (knownWidth * focalLength) / perWidth
-
+#def distance_to_camera(knownWidth, focalLength, perWidth):
+#        # compute and return the distance from the maker to the camera
+#        if perWidth == 0:
+#            return 0
+#        else:
+ #           return (knownWidth * focalLength) / perWidth
+#
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--modeldir', help='Folder the .tflite file is located in',
@@ -214,16 +214,16 @@ xmid=0 #init line in middle of detected object
 #KNOWN_DISTANCE = 24.0
 # initialize the known object width, which in this case, the piece of
 # paper is 12 inches wide
-KNOWN_WIDTH = 2.547
+#KNOWN_WIDTH = 2.547
 # load the furst image that contains an object that is KNOWN TO BE 2 feet
 # from our camera, then find the paper marker in the image, and initialize
 # the focal length
 #ret, image = cap.read()
 #marker = find_marker(image)
-focalLength = 1170.6
+#focalLength = 1170.6
 #(marker[1][0] * KNOWN_DISTANCE) / KNOWN_WIDTH
-newim = 0
-pastim = 0
+#newim = 0
+#pastim = 0
 
 current_score=0
 #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
@@ -290,7 +290,7 @@ while True:
 
 
     # Draw framerate in corner of frame
-    cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
+    #cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
     
     
     #convert, then send data over w i2c
@@ -298,18 +298,18 @@ while True:
         block=[0,"placeholder"] #set flag for leftmost bits to 0, don't do more math
     dec_list = send_to_pi(block)
     
-    marker = find_marker(frame)
-    if marker == 0:
-        inches = 0
-    else:
-        inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
-        # draw a bounding box around the image and display it
-        newim = int(inches * 2.54)
-        if newim>=150:
-            newim=0
+  #  marker = find_marker(frame)
+  #  if marker == 0:
+  ##      inches = 0
+   # else:
+   #     inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
+   #     # draw a bounding box around the image and display it
+   #     newim = int(inches * 2.54)
+   #     if newim>=150:
+   #         newim=0
     
-    dec_list.append(newim)
-    print(dec_list, "DEC_LIST SHOULD ALSO HAVE CHAD'S DIST")
+  #  dec_list.append(newim)
+    print(dec_list, "DEC_LIST SHOULD Only have two values")
     
     
     #if Kelly's current detected threshold>65%, send data to pi, else send nothing. Even if only Chad's distance from obj is detected.
@@ -331,7 +331,7 @@ while True:
     print(flag, "flag number")
     print("\n")
     last_block=dec_list.copy()
-    dec_list.pop(1)
+    #dec_list.pop(1)
     
     
     # All the results have been drawn on the frame, so it's time to display it.

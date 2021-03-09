@@ -1,32 +1,19 @@
-
+for reference:
+https://github.com/EdjeElectronics/TensorFlow-Object-Detection-API-Tutorial-Train-Multiple-Objects-Windows-10
 =================================================================================
 PATH TO OBJECT DETECTION FOLDER: C:\tensorflow1\models\research\object_detection
 =================================================================================
 =================================================================================
 VERSIONS:
 TF1: 1.13.1 (updated to 1.14.1 to use model_main) (library for high scale computer and ML)(check by pip list | grep tensorflow) or with pip3
-Python: 3.7 ( .3,any ok) 64bit in Windows, 32bit in Pi
-Keras 2.2.3 (2.3 maybe should be ok also, but I have 2.2.4-tf)(a library w python for deep learning)
+Python: 3.7.3 (64bit in Windows, 32bit in Pi)
 protobuf: 3.13  (check by: protoc --version)
 (here is 3.14 https://github.com/protocolbuffers/protobuf/releases/tag/v3.14.0 )
 opencv 4.5.1.48
 NUMPY: conda install numpy=1.17.4
-picamera=1.13 (https://picamera.readthedocs.io/en/release-1.13/faq.html)
-
-
-When first installing Anaconda:
-Anaconda: defaults to installing in  C:\Users\Kelly Duong 
-but we shouldn't install anaconda in filename with spaces, so I installed in C:\
-
-Anaconda administrator automatically opens to: C:\Windows\system32>>
-(so cd .. back to tensorflow1 folder in C:\ to enter venv)
-
-
-tensorflow1 is for cpu
-for gpu I don't have a nvdia card so cannot use... reduces training time by ~12x
-(reason why I can't use locally: https://stackoverflow.com/questions/58367880/can-i-able-to-detect-object-with-intelr-uhd-graphics-620 )
-NEW:
-UPDATED TO TF1.14.1 SO NEW VENV NAME: tensorflow14  , please set path appropriately too below
+picamera=1.13 (v2: https://picamera.readthedocs.io/en/release-1.13/faq.html)
+------------------------------------------------------------
+USE:
 ============================================================================================
 --------------------------------------------------------------------------------------------
 V I R T U A L   E N V: easily keep different versions of programs, etc.:
@@ -44,7 +31,8 @@ conda info --envs
 )
 !!!!!!!!!!!!!!!!IMPORTANT!!!!!!!!!!!!!!!!!
 NEED TO SET PYTOHNPATH everytime I re-enter virtual env, unless I set as default in .bashrc (easier in pi, linux)
-set by:  set PYTHONPATH=C:\tensorflow1\models;C:\tensorflow1\models\research;C:\tensorflow1\models\research\slim
+set by:  
+set PYTHONPATH=C:\tensorflow1\models;C:\tensorflow1\models\research;C:\tensorflow1\models\research\slim
 set PYTHONPATH=C:\tensorflow14\models;C:\tensorflow14\models\research;C:\tensorflow14\models\research\slim
 check by :   echo %PYTHONPATH%
 (optionally:set PATH=%PATH%;PYTHONPATH )
@@ -56,16 +44,33 @@ conda activate tensorflow-build
 set PATH=%PATH%;C:\msys64\usr\bin
 --------------------------------------------------------------------------------------------
 
-Issues during setting up files for training:
-During this protoc, it won't be able to create a new file for calibration, so leave it out of the code. (or in?)
-protoc --python_out=. .\object_detection\protos\calibration.proto
+INSTALLATION:
+When first installing Anaconda:
+Anaconda: defaults to installing in  C:\Users\Kelly Duong 
+but we shouldn't install anaconda in filename with spaces, so I installed in C:\
+
+Anaconda administrator automatically opens to: C:\Windows\system32>>
+(so cd .. back to tensorflow1 folder in C:\ to enter venv)
 
 
-Issues with Pycoco tools for evaluation (testing):
-ex. (from file eval.py)
-	ModuleNotFoundError: No module named 'pycocotools._mask'
-	or 
-	ImportError: No module named pycocotools
+tensorflow1 is for cpu
+for gpu I don't have a nvdia card so cannot use... reduces training time by ~12x
+(reason why I can't use locally: https://stackoverflow.com/questions/58367880/can-i-able-to-detect-object-with-intelr-uhd-graphics-620 )
+NEW:
+UPDATED TO TF1.14.1 SO NEW VENV NAME: tensorflow14  , please set path appropriately too below
+------------------------------------------------------------------
+ISSUES:
+
+	TRAINING SETUP:
+		During this protoc, it won't be able to create a new file for calibration, so leave it out of the code. (or in?)
+		protoc --python_out=. .\object_detection\protos\calibration.proto
+
+
+	EVAL SETUP: (Pycoco tools for testing):
+		ex. (from file eval.py)
+			ModuleNotFoundError: No module named 'pycocotools._mask'
+		or 
+			ImportError: No module named pycocotools
 follow cocoapi download, pip install git+https://github.com/philferriere/cocoapi.git#subdirectory=PythonAPI
 then goto tf1/models/research, replace pycocotools folder with different name and run
 (cont.) Now issue with detecting object 64/numpy.float64? (or something to do with int, etc.)
@@ -81,49 +86,45 @@ then goto tf1/models/research, replace pycocotools folder with different name an
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 TRAIN / EVALUATION :
 
-TENSORBOARD:  (graph visualization during training time):
-open another terminal window: (MAKE sure to goto venv, then cd into obj detection)
+train:
+	-use model_main.py for eval+train, or do train.py & eval.py seperately
+	python object_detection/model_main.py \
+    	--pipeline_config_path=/training/ssd_mobilenet_v2_quantized_300x300_coco.config\
+    	--model_dir=\training \ 
+    	--num_train_steps=50000\
+    	--sample_1_of_n_eval_examples=1\
+    	--alsologtostderr
+	then (also maybe change batch size to smaller # if less memory)
 
-tensorboard --logdir=images --host localhost --port 8088
-http://localhost:8088/
-(to take out error go to C:\condaconda64\envs\tensorflow1\Lib\site-packages\tensorboard\manager.py
-change these lines
-serialize=lambda dt: int(dt.strftime("%S")),
-    #serialize=lambda dt: int(
-    #    (dt - datetime.datetime.fromtimestamp(0)).total_seconds()),
+	#in object detection folder:
+	#Can use model_main script to run train and eval at the same time! rather than one at a time (train.py and eval.py from the legacy folder)
+	#python model_main.py --pipeline_config_path=/path/to/pipeline_file --model_dir=/path/to/output_results --checkpoint_dir=/path/to/directory_holding_checkpoint --run_once=True
+	#python models/research/object_detection/model_main.py --pipeline_config_path=/training/ssd_mobilenet_v2_quantized_300x300_coco.config --checkpoint_dir=/training/model.ckpt-75 --run_once=True
+
+python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr
+
+ (Checkpoint does not seem to work-> )--checkpoint_dir=\images\model.ckpt-1345 
+
+
+
+eval:
+TENSORBOARD:  (graph visualization during training time):
+	open another terminal window: (MAKE sure to goto venv, then cd into obj detection)
+
+	tensorboard --logdir=images --host localhost --port 8088
+	(in browser) http://localhost:8088/
+
+Error?
+	go to C:\condaconda64\envs\tensorflow1\Lib\site-packages\tensorboard\manager.py
+	(change these lines:)
+	serialize=lambda dt: int(dt.strftime("%S")),
+    	#serialize=lambda dt: int(
+    	#    (dt - datetime.datetime.fromtimestamp(0)).total_seconds()),
 )
 
 
-# From the tensorflow/models/research/ directory
-PIPELINE_CONFIG_PATH={path to pipeline config file}
-MODEL_DIR={path to model directory}the training output
-NUM_TRAIN_STEPS=50000
-SAMPLE_1_OF_N_EVAL_EXAMPLES=1
 
-python object_detection/model_main.py \
-    --pipeline_config_path=/training/ssd_mobilenet_v2_quantized_300x300_coco.config\
-    --model_dir=\training \ 
-    --num_train_steps=50000\
-    --sample_1_of_n_eval_examples=1\
-    --alsologtostderr
-then do (also maybe change batch size to 1
-
-#Can use model_main script to run train and eval at the same time! rather than one at a time (train.py and eval.py from the legacy folder)
-python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr
-#python models/research/object_detection/model_main.py --pipeline_config_path=/path/to/pipeline_file --model_dir=/path/to/output_results --checkpoint_dir=/path/to/directory_holding_checkpoint --run_once=True
-#python models/research/object_detection/model_main.py --pipeline_config_path=/training/ssd_mobilenet_v2_quantized_300x300_coco.config --checkpoint_dir=/training/model.ckpt-75 --run_once=True
-
-python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr
-
-
-
-python model_main.py --pipeline_config_path=training\ssd_mobilenet_v2_quantized_300x300_coco.config --model_dir=images --num_train_steps=50000 --sample_1_of_n_eval_examples=1 --alsologtostderr --checkpoint_dir=\images\model.ckpt-1345 
-
-
-%tensorboard --logdir logs/gradient_tape
-file_writer = tf.summary.FileWriter('/path/to/logs', sess.graph)
-
-()()()()()()( 8 total classes )
+()()()()()()( 8 total classes ) ()()()()()()
 First train: 
 train:452, test: 132 = total 584 with ~23% split
 loss lowered from 30 to 2 over  few hours, I also put 264 in eval_config, num examples,ssd_config; when it should be 132? hmm
@@ -136,21 +137,14 @@ train:736, test:187 = 923 pictureswith~ 20% split
 ==============================================================================================
 ==============================================================================================
 DATASETS:  
-(potentially can use: Flowers Dataset:)
-https://www.robots.ox.ac.uk/~vgg/data/flowers/
-
-numbers : MINIST has 60k training, 10k test examples, too many, we only need a few (less)
-http://yann.lecun.com/exdb/mnist/
 http://ufldl.stanford.edu/housenumbers/
 
-so use a user-created dataset !!!!!!!!!!!!!!!!!!!!!!!
-https://www.kaggle.com/scolianni/mnistasjpg
-(downloaded sample with 250, took out numbers 5-9 so 184 pictures)
-
-person dataset
+Visual Genome's Dataset of images: (for humans, background pictures, some plants, etc.)
+http://visualgenome.org/api/v0/api_home.html
+Fudan/Penn humans dataset:
 https://github.com/mahavird/Person-Detector-Dataset
 
-Dat Tran's raccoon dataset
+Dat Tran's raccoon dataset:
 https://github.com/datitran/raccoon_dataset
 https://towardsdatascience.com/how-to-train-your-own-object-detector-with-tensorflows-object-detector-api-bec72ecfe1d9
 
@@ -175,7 +169,7 @@ $ lsvirtualenv -l
 (while testing for a few minutes, it went from ~47 to 63 degrees! But apparently I should only start to worry if it goes for 80+-100 for a while)
 
 `````````````````````````````````````````````````````````````````````
-PROBLEM WITH INSTALLING BAZEL, etc. TO CONVERT TO TFLITE SO
+PROBLEM WITH INSTALLING BAZEL, etc. TO CONVERT TO TFLITE SO:
 followed:in issues:
 https://github.com/EdjeElectronics/TensorFlow-Lite-Object-Detection-on-Android-and-Raspberry-Pi/issues/40
 https://colab.research.google.com/drive/1DolVXkn1w0ADa4B_jAuCpjSnyRSApH7D?authuser=2#scrollTo=oBjfejA4FgTf
@@ -271,24 +265,6 @@ bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: direc
 bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
 bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
 bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-INFO: From ProtoCompile tensorflow/core/profiler/tfprof_output.pb.h:
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-INFO: From ProtoCompile tensorflow/core/profiler/op_profile.pb.h:
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
-bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
 INFO: From ProtoCompile tensorflow/core/protobuf/worker.pb.h:
 bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
 bazel-out/x64_windows-opt/genfiles/external/protobuf_archive/src: warning: directory does not exist.
@@ -350,7 +326,8 @@ INFO: 188 processes: 188 local.
 FAILED: Build did NOT complete successfully
 
 
-SOLUTION: checked issues in github, found someone who created a conversion through colab 
+SOLUTION: checked issues in github, found someone who created a conversion through colab in Edje's github issues pages:
+https://colab.research.google.com/drive/1DolVXkn1w0ADa4B_jAuCpjSnyRSApH7D?authuser=2#scrollTo=oBjfejA4FgTf
 (if link can't be open, but opens in incognito, re-enable third-party cookie blocking by clicking the eye in the url to turn it back on)
 
 

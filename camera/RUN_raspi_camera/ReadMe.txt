@@ -5,39 +5,38 @@
 		(Code w/o Showing camera window to viewer: faster fps!):
 		--> no_gui.py (cv2.imshow() commented out, etc.)
 
-
 ==============================================================================
 ==============================================================================
-
 Versions:
-Python 3.7.3
-When it asks to install TF (1c.) install TF 1.13.1 first (if doesn't work, try 1.14)
-opencv 4.5.1.48 (pip3 install --upgrade opencv-python==4.5.1.48)
+	Python 3.7.3
+	When it asks to install TF (1c.) install TF 1.13.1 first (if doesn't work, try 1.14)
+	opencv 4.5.1.48 (pip3 install --upgrade opencv-python==4.5.1.48)
 
 
 Follow this link for help on installation:
 https://github.com/EdjeElectronics/TensorFlow-Lite-Object-Detection-on-Android-and-Raspberry-Pi/blob/master/Raspberry_Pi_Guide.md
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+In step 1d. Option 2: 
+Using our own trained model, copy everything needed in this raspi_camera, paste inside tflite1, and follow the instructions.
 
-In step 1d. Option 2: Using our own trained model, copy everything needed in this raspi_camera, paste inside tflite1, and follow the instructions.
-
+===========================================================
 -----------------------------------------------------------
+STEPS TO DOWNLOAD NEW DETECTION TFLITE MODELS:
 -----------------------------------------------------------
-In TFLite1 Folder,"TFLite_detection_webcam.py", and a sub-folder "TFLite_model" containing our trained model, etc.
+In TFLite1 Folder,"combine_CK.py", and a sub-folder "TFLite_model" containing our trained model, etc.
 
 (enter venv by)
-source /home/pi/tflite1/tflite1-env/bin/activate
+cd /
+cd home/pi/tflite1/
+(make sure correct venv name below)
+source /tflite1-env/bin/activate
 
 (tflite1-env) pi@raspberrypi:~/tflite1 $ 
 (type in)
-python3 TFLite_detection_webcam.py --modeldir=TFLite_model --resolution=640x480
+python3 combine_CK.py --modeldir=TFLite_model --resolution=640x480
 -----
 -----
-use above to test, then use below to check with more code + connect to i2c or will get error.
-replace TFLite_detection_webcam.py with ...
-		-->no_gui.py   (faster, but doesn't show you camera view)
-		--)combine_CK.py (best for debugging)
 
 ===========================================================
 ===========================================================
