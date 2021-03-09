@@ -202,9 +202,8 @@ Bool turnOnGun_g = False ;  // 0 - gun is turned off, 1 - gun is turned on
 Bool waterMeasured_g = True ; // 0 - not measured yet, 1 - already measured
 Bool stopSig_g = False ;    // determines when to stop water nozzle
 Bool isPlant_g = False ;    // detects plant from RPi
-Bool isObject_g = False ;   // detects object from RPi
-Bool objectDetected_g = False ; // True when isPlant_g OR isObject_g is true
-Bool withinRange_g = False ;  // determines if object detected is within range (only dead ahead of car)
+Bool isObject_g = False ;   // detects object from RPi   False --> True (for testing)
+//Bool withinRange_g = False ;  // determines if object detected is within range (only dead ahead of car)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
 
@@ -229,9 +228,9 @@ const unsigned char maxDeg_g = 165 ;  // maximum angle of servo motor
 
 // i2c vars ... may change
 int degrees = 0 ;
-int arr[]= {0} ;
-int class_n = 0 ;
-char name[13] ;
+//int arr[]= {0} ;
+//int class_n = 0 ;
+//char name[13] ;
 
 // values for PID system ... can be changed as testing continues
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
@@ -351,6 +350,10 @@ int TickFct_LEDs(int state){
 /* State Machine 3 */
 int TickFct_servos(int state){
   static unsigned char i = 0 ; ; // used to control motor for a set duration
+  static unsigned int waitCnt = 0 ; // used to reverse out of stuck position
+  const unsigned int maxWaitCnt = 1000 ; // max time to wait in stuck position
+  static volatile Bool objectDetected = False ;  // True when isPlant_g OR isObject_g is True
+  static volatile Bool withinRange = False ;  // determines if object detected is within range (only dead ahead of car)
   
   switch(state){  // state transitions
     case SM3_init:
@@ -385,46 +388,133 @@ int TickFct_servos(int state){
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
       #endif
 
-      if(distTeensy_g > 50){  // object not in range yet
-        // go forwards
-        Serial.println("Forward") ;
-        //digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
-        digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+      // determine if an object was detected
+      objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
+      // determine if an object is straight ahead
+      withinRange = compareDistance() ;
 
-        // check if motors need to jump start
-        if(jumpStart_g){
-          for(i = 0; i < 10; i++){
-            outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-            delay(5) ;
+      switch(withinRange){
+        case True:
+          switch(objectDetected){
+            case True:  // stop the car, object is straight ahead
+              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+              outputPWM(0, MOTOR_2_PWM) ;
+              break ;
+            case False:
+              digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+              analogWrite(MOTOR_2_PWM, carVeloc_g) ;
+              break ;
+            default:
+              digitalWrite(DIAGNOSE_LED, HIGH) ;
+              delay(1000) ;
+              break ;
           }
-        }
-        outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-        jumpStart_g = False ;
-      } else if(distTeensy_g < 30){  // object out of range
-        // go backwards 
-        Serial.println("Backwards") ;
-        //digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
-        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
-
-        // check if motors need to jump start
-        if(jumpStart_g){
-          for(i = 0; i < 10; i++){
-            outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-            delay(5) ;
+          
+        case False:
+          switch(objectDetected){
+            case True:  // stop the car, object straight ahead
+              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+              break ;
+              
+            case False:
+              if(distTeensy_g > 50){  // object not in range yet
+                // go forwards
+                Serial.println("Forward") ;
+                digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+        
+                // check if motors need to jump start
+                if(jumpStart_g){
+                  for(i = 0; i < 10; i++){
+                    outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+                    delay(5) ;
+                  }
+                }
+                outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+                jumpStart_g = False ;
+              } else if(distTeensy_g < 30){  // object out of range
+                // go backwards 
+                Serial.println("Backwards") ;
+                digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
+        
+                // check if motors need to jump start
+                if(jumpStart_g){
+                  for(i = 0; i < 10; i++){
+                    outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+                    delay(5) ;
+                  }
+                }
+                outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+                jumpStart_g = False ;
+              } else{   // object within range
+                // stay still
+                Serial.println("Still") ;
+                digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+                outputPWM(0, MOTOR_2_PWM); delay(10) ;
+                jumpStart_g = True ;
+                if(waitCnt >= maxWaitCnt){  // reverse out of stuck position
+                  for(int j = 0; j < 25; j++){  // reverse out of stuck position ... change 25 into better number
+                    digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+                    analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(10) ;
+                  }  
+                }
+              }
+              break ;
+              
+            default:
+              digitalWrite(DIAGNOSE_LED, HIGH) ;
+              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+              outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
+              delay(1000) ;
+              break ;
           }
-        }
-
-        //outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
-        outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-        jumpStart_g = False ;
-      } else{   // object within range
-        // stay still
-        Serial.println("Still") ;
-        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-        outputPWM(0, MOTOR_2_PWM); delay(10) ;
-
-        jumpStart_g = True ;
+          default:
+            digitalWrite(DIAGNOSE_LED, HIGH) ;
+            delay(1000) ;
+            break ; 
       }
+
+      #if 0
+        if(distTeensy_g > 50){  // object not in range yet
+          // go forwards
+          Serial.println("Forward") ;
+          //digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
+          digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+  
+          // check if motors need to jump start
+          if(jumpStart_g){
+            for(i = 0; i < 10; i++){
+              outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+              delay(5) ;
+            }
+          }
+          outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+          jumpStart_g = False ;
+        } else if(distTeensy_g < 30){  // object out of range
+          // go backwards 
+          Serial.println("Backwards") ;
+          //digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
+          digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
+  
+          // check if motors need to jump start
+          if(jumpStart_g){
+            for(i = 0; i < 10; i++){
+              outputPWM(arrPWM[5], MOTOR_2_PWM) ;
+              delay(5) ;
+            }
+          }
+  
+          //outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
+          outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+          jumpStart_g = False ;
+        } else{   // object within range
+          // stay still
+          Serial.println("Still") ;
+          digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
+          outputPWM(0, MOTOR_2_PWM); delay(10) ;
+  
+          jumpStart_g = True ;
+        }
+      #endif
       
       break ;
     case SM3_turnOnServo:
@@ -1362,22 +1452,25 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 */
 
 void event(int byteCount){
+  volatile unsigned char buf[8] = "" ;
+  volatile unsigned int arr[4] ;
   
   while(Wire.available()) {               //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
       for(int i = 0; i < byteCount; i++){ // place read bytes into array
-        arr[i] = Wire.read();
-        Serial.print(arr[i]);
-        Serial.print(" ");
+        buf[i] = Wire.read();
+        arr[i] = (int)(buf[i]) ;
+        //Serial.print(arr[i]);
+        //Serial.print(" ");
       }
-      Serial.print(" \n");
+      //Serial.print(" \n");
        
      if ((arr[0] & 0x08) == 8){
        //take info, do conversions, else, ignore
-       
-        degrees=0;
-        degrees= degrees | arr[1]<<4;
-        degrees= degrees | arr[2];  
+        //degrees=0;
+        //degrees= degrees | arr[1]<<4;
+        //degrees= degrees | arr[2];  
 
+        // get angle
         angleRPi_g = 0 ;  // reset angle to 0
         angleRPi_g |= arr[1] << 4 ;
         angleRPi_g |= arr[2] ;
@@ -1388,50 +1481,53 @@ void event(int byteCount){
         } else if(angleRPi_g < minDeg_g){
           angleRPi_g = minDeg_g ;  
         }
-
-        // degrees= degrees | arr[1]<<8;  //commented out for >3 sets of bits (12) sent thru bus
-        // degrees= degrees | arr[2]<<4;  // this was for 4 sets (2 bytes) but the 4th set 
-        // degrees= degrees | arr[3];     //and beyond inits to 0 so this can't be used
-        
-        Serial.print(degrees);
-        Serial.print(" ");
-        
-
-      Serial.print("= degrees, our coordinate!");
-      Serial.print(" \n");
+        //Serial.print(degrees); Serial.print(" ");
+        //Serial.print("= degrees, our coordinate!\n");
      
-      class_n = arr[0] & 0x07; //bit mask left-most number to keep last 3 bits >>1;
-      //Serial.print(class_n);
-      //Serial.print("= was that class num correct?\n");
-         if (class_n==0) {
-           strcpy(name, "zero") ;
-         } else if (class_n==1){
-           strcpy(name, "one") ;
-         } else if (class_n==2){
-           strcpy(name, "two") ;
-         } else if (class_n==3){
-           strcpy(name, "three") ;
-         } else if (class_n==4){
-           strcpy(name, "squirrel") ;
-         } else if (class_n==5){
-           strcpy(name, "raccoon") ;
-         } else if (class_n==6){
-           strcpy(name, "person") ;
-         } else if (class_n==7){
-           strcpy(name, "potted plant") ;
-         } else{ 
-            __asm("nop") ;
-         }
-         Serial.print("class name: ");
-         Serial.print(name);
-         Serial.print("\n");
-     }
-       
-   else{
-        Serial.print("nothing! nothing seen of interest, COMMENT OUT\n\n")  ;
-       }    
-     
+        if((arr[0] & 0x07) > 0){  // determine if object is found
+          isObject_g = True ;  
+        } else{
+          isObject_g = False ;  
+        }
+
+        if((arr[0] & 0x07) == 0x07){  // determine if a plant was found
+          isPlant_g = True ;  
+        } else{
+          isPlant_g = False ;  
+        }
+        //class_n = arr[0] & 0x07; //bit mask left-most number to keep last 3 bits >>1;
+        //Serial.print(class_n);
+        //Serial.print("= was that class num correct?\n");
+           #if 0
+             if (class_n==0) {
+               strcpy(name, "zero") ;
+             } else if (class_n==1){
+               strcpy(name, "one") ;
+             } else if (class_n==2){
+               strcpy(name, "two") ;
+             } else if (class_n==3){
+               strcpy(name, "three") ;
+             } else if (class_n==4){
+               strcpy(name, "squirrel") ;
+             } else if (class_n==5){
+               strcpy(name, "raccoon") ;
+             } else if (class_n==6){
+               strcpy(name, "person") ;
+             } else if (class_n==7){
+               strcpy(name, "potted plant") ;
+             } else{ 
+                __asm("nop") ;
+             }
+             Serial.print("class name: ");
+             Serial.print(name);
+             Serial.print("\n");
+           #endif
+       } else{
+         angleRPi_g = 0 ;
+       }
    }
+   // get distance
+   distRPi_g = (unsigned char)arr[3] ; // get distance value form I2C
 }
 
 /* 
@@ -1713,6 +1809,7 @@ Bool compareDistance(void){
     }
   }
 
+  // h(x = num) <= distRPi_g <= g(x = num)  ... within margin of error
   if((hx[num] <= distRPi_g) && (distRPi_g <= gx[num])){   // returns whether or not RPi distance is within margin of error
     return True ;
   }
