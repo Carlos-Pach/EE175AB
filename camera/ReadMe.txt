@@ -152,6 +152,8 @@ created squirrel, potted plant dataset
 
 augmentation:
 https://github.com/tensorflow/models/blob/master/research/object_detection/builders/preprocessor_builder_test.py
+https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?article=1613&context=etd_projects
+^ SJSU implemented various data augmentations that worked well on my dataset too like random crop pad, random black patches, etc. 
 ==================================================================================
 RASPBERRY PI:
 

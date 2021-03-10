@@ -42,7 +42,7 @@ python3 combine_CK.py --modeldir=TFLite_model --resolution=640x480
 ===========================================================
 
 Make sure you have smbus2, imutils, etc. packages installed!
-
+Make sure camera is correctly connected.
 
 ................................................................................................................................
 

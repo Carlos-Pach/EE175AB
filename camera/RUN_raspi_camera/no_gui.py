@@ -226,6 +226,7 @@ xmid=0 #init line in middle of detected object
 #pastim = 0
 
 current_score=0
+once_flag=0
 #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
 while True:
 
@@ -315,23 +316,48 @@ while True:
     #if Kelly's current detected threshold>65%, send data to pi, else send nothing. Even if only Chad's distance from obj is detected.
     if ((current_score > 65) and (flag==1)) :
         try:
+            once_flag=0
             msg = i2c_msg.write(addr,dec_list)
             bus.i2c_rdwr(msg)
             time.sleep(.1)
             print("try succeed hopefully")
         except:                                 # to handle i2c remote i/o error, just wait and try again
-            time.sleep(.3)
-            msg = i2c_msg.write(addr,dec_list)
-            bus.i2c_rdwr(msg)
-            time.sleep(.1)
-            print("try failed...")
+            try:
+                time.sleep(.2)
+                msg = i2c_msg.write(addr,dec_list)
+                bus.i2c_rdwr(msg)
+                time.sleep(.1)
+                print("try succeed after first error")
+            except:                                 # to handle i2c remote i/o error, just wait and try again
+                time.sleep(.2)
+                msg = i2c_msg.write(addr,dec_list)
+                bus.i2c_rdwr(msg)
+                time.sleep(.1)
+                print("try failed twice ..")
+                print(" WHY HAVE YOU FAILED ME")
     else:
-        print("TF Object detector saw nothing")
+        once_flag+=1
+        print("TF Object detector first sees nothing")
+        if (once_flag==1):
+            try:
+                dec_list=[0xF0,0]
+                msg = i2c_msg.write(addr,dec_list)
+                bus.i2c_rdwr(msg)
+                time.sleep(.1)
+                print("try succeed hopefully")
+            except:               
+                time.sleep(.2)
+                dec_list=[0xF0,0]
+                msg = i2c_msg.write(addr,dec_list)
+                bus.i2c_rdwr(msg)
+                time.sleep(.1)       
+        else: #flag>1
+            print("TF Object detector sends nothing")
+        
     
     print(flag, "flag number")
     print("\n")
     last_block=dec_list.copy()
-    #dec_list.pop(1)
     
     
     # All the results have been drawn on the frame, so it's time to display it.
