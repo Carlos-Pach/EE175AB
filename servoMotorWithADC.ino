@@ -60,16 +60,6 @@ typedef enum {False, True} Bool ;    // 0 - false, 1 - true
 typedef enum {Plant_0, Plant_1, Plant_2} PLANT_NUM ;    // number of plants to water
 typedef enum {low, medium, high} PLANT_PRIORITY ; // plant priority
 
-#if 0
-typedef struct distKNN{
-  uint16_t x, y ;   // points on x-y plane (x is teeensy, y is RPi)
-  double distance ; // distance from test points 
-  Bool correctDist ; 
-} tKNN ;
-
-tKNN approxDistKNN[10], distanceRead ; // amount of test points
-#endif
-
 
 typedef struct PlantData{
   PLANT_NUM plantNum ;    // plant number
@@ -81,10 +71,6 @@ typedef struct PlantData{
 
 tPlantData plants[NUM_PLANTS] ; // number of plants to water
 
-
-/* Task scheduler runs in [us] */
-/* create task scheduler */
-//IntervalTimer myTimer ;
 
 typedef struct task{
   int state ; // current state of task
@@ -208,9 +194,10 @@ Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
 
 // data from RPi
-volatile unsigned char distRPi_g ;  // distance calculated by RPi
-static unsigned long distTeensy_g ; // distance calculated by Teensy
-volatile unsigned char angleRPi_g ; // angle from RPi
+//volatile unsigned char distRPi_g ;  // distance calculated by RPi
+static unsigned long distTeensy_g = 16 ; // distance calculated by Teensy ... set to 16 in order to not reverse in start up
+volatile unsigned char angleRPi_g = 10 ; // angle from RPi (start at 10)
+volatile unsigned char prevAngleRPi_g = 10 ; // save previous angle for comparison in water gun SM
 
 // values for RC car
 unsigned int valPWM_g ; // PWM output value
@@ -219,27 +206,25 @@ const int carVeloc_g = 400 ;  // velocity of car (can be changed later)
 // values for weight sensor
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
 long t ;  // time elapsed for LoadCell
-const float expectedMass_g = 750.0 ;  // expected mass of weight sensor (can be changed later)
+const float expectedMass_g = 473.0 ;  // expected mass of weight sensor (half full, can be changed later)
 const float minMass_g = 50.0 ; // minimum mass needed until refill is necessary (can be changed later)
 
 // values for water gun
 const unsigned char minDeg_g = 35 ; // minimum angle of servo motor
-const unsigned char maxDeg_g = 165 ;  // maximum angle of servo motor
+const unsigned char maxDeg_g = 155 ;  // maximum angle of servo motor
 
 // i2c vars ... may change
-int degrees = 0 ;
-//int arr[]= {0} ;
-//int class_n = 0 ;
-//char name[13] ;
+//int degrees = 0 ;
 
+#if 0
 // values for PID system ... can be changed as testing continues
 const int kp = 500 ;  // kp - proportional value for PID sys  (0.5)
 const int ki = 1 ;  // ki - integral value for PID sys (0.001)
 const int kd = 3000 ;  // kd - derivative value for PID sys (3.0)
+#endif
 
 
-
-/* declare function prototypes */
+// declare function prototypes
 void outputPWM(unsigned int val, unsigned char pinNum) ;  /* added pinNum parameter */
 uint16_t findNum(uint16_t arr[], unsigned int resistorVal, unsigned int arrSize) ;    // use this function until binary search is ironed out
 unsigned long measureDistance(unsigned long *arr) ;
@@ -254,9 +239,7 @@ void swap(unsigned long *p1, unsigned long *p2) ; // swaps vals between two addr
 void ascendSort(unsigned long arr[], unsigned char n) ; // sort arr in ascending order
 void bubbleSortPlant(void) ;
 float measureMass(void) ;  // measures current mass of weight sensor
-//void initKNN(void) ;  // inits KNN training data
-Bool compareDistance(void) ;  // compares distance measured by Teensy and RPi
-/* end function prototypes */
+// end function prototypes
 
 
 
@@ -352,9 +335,11 @@ int TickFct_servos(int state){
   static unsigned short i = 0 ; ; // used to control motor for a set duration
   static unsigned int waitCnt = 0 ; // used to reverse out of stuck position
   const unsigned int maxWaitCnt = 50 ; // max time to wait in stuck position
-  static volatile Bool objectDetected = False ;  // True when isPlant_g OR isObject_g is True
-  const unsigned short n = 500 ;   // time it takes to go backwards ~3 [s] ... can be changed after testing
-  //static volatile Bool withinRange = False ;  // determines if object detected is within range (only dead ahead of car)
+  static volatile Bool objectDetected = False ;  // Assume false, True when isPlant_g OR isObject_g is True
+  const unsigned short n = 20 ;   // time it takes to go backwards ~3 [s] ... can be changed after testing
+  const unsigned short maxN = 500 ; // used when the car is directly in front of a wall
+  const unsigned short boostCarVeloc = 500 ;  // when in the stuck state, car needs higher starting velocity to speed up
+  const unsigned int maxVeloc = 0x3FF ;   // max velocity to jump start car in stuck position
   
   switch(state){  // state transitions
     case SM3_init:
@@ -362,9 +347,11 @@ int TickFct_servos(int state){
       state = SM3_turnOffServo ;
       
       // ready up motors
-      for(i = 0; i < 10; i++){  // turn on motor 1A and 2B to go forward
-        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-        analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(5) ;
+      for(i = 0; i < 50; i++){  // turn on motor 1A and 2B to go forward
+        //digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+        digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+        //analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(5) ;
+        analogWrite(MOTOR_2_PWM, boostCarVeloc); delay(1) ;
       }
       
       jumpStart_g = False ; // motors already turning
@@ -388,9 +375,6 @@ int TickFct_servos(int state){
         // turn off motors
         digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
       #endif
-      #if 0   // TEST CASE
-        distRPi_g = 20 ;
-      #endif
       
       // determine if an object was detected
       objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
@@ -402,38 +386,68 @@ int TickFct_servos(int state){
       switch(objectDetected){
         case True:
           // stop car, object straight ahead
-          Serial.println("objectDetected"); delay(10) ;
-          Serial.println("Still"); delay(10) ;
+
+          //comment these out when not testing/debugging
+          Serial.println("objectDetected"); //delay(10) ;
+          Serial.println("Still"); //delay(10) ;
 
           digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-          outputPWM(0, MOTOR_2_PWM); delay(10) ;
+          outputPWM(0, MOTOR_2_PWM); //delay(10) ;
           break ; // end case True
         
         case False:
           // object or obstacle not detected, determine distance with teensy sensor
-          Serial.println("!objectDetected");
+          Serial.println("!objectDetected");  // comment out when not debugging
           if(distTeensy_g > 50){ // more than 50 [cm] of free space
             // keep moving forward
-            Serial.println("Forwards"); delay(10) ;
-            digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW); delay(10) ;
-            analogWrite(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+            Serial.println("Forwards"); //delay(10) ; // comment out when not debugging
+            digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW); delay(5) ;
+            //analogWrite(carVeloc_g, MOTOR_2_PWM); delay(5) ;
+            analogWrite(MOTOR_2_PWM, carVeloc_g) ;
           } else if(distTeensy_g < 30){ // less than 30 cm from an object/obstacle
             // move backwards
-            Serial.println("Backwards"); delay(10) ;
-            digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH); delay(10) ;
-            analogWrite(carVeloc_g, MOTOR_2_PWM) ; delay(10) ;
+            Serial.println("Backwards"); //delay(10) ;  // comment out when not debugging
+            digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH);
+            
+            if(distTeensy_g <= 15){ // overshot the acceleration and we are right next to wall ... give a jump start
+              Serial.println("distTeensy <= 15") ;
+              for(i = 0; i < n; i++){
+                  //analogWrite(boostCarVeloc, MOTOR_2_PWM) ;
+                  analogWrite(MOTOR_2_PWM, boostCarVeloc) ;
+              }
+            }
+            if(waitCnt >= maxWaitCnt){  // if we are stuck in backwards state, give car a boost
+              Serial.println("waitCnt exceeded") ;
+              for(i = 0; i < n; i++){
+                //analogWrite(maxVeloc, MOTOR_2_PWM);
+                analogWrite(MOTOR_2_PWM, boostCarVeloc) ;
+              }
+              waitCnt = 0 ; // reset waitCnt if we entered this portion 
+            }
+            
+            for(i = 0; i < n; i++){ // boost the car for a bit ... change the value around when comparing variable i
+              //digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH);
+              //analogWrite(carVeloc_g, MOTOR_2_PWM); //delay(5) ;    
+              analogWrite(MOTOR_2_PWM, carVeloc_g) ;
+            }
+            digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH); //delay(10) ;
+            //analogWrite(carVeloc_g, MOTOR_2_PWM) ; //delay(10) ;
+            analogWrite(MOTOR_2_PWM, carVeloc_g) ;
+            waitCnt++ ;
           } else{ // unknown object ahead ... stay still
-            Serial.println("Still") ;
+            Serial.println("Still") ; // comment out when not debugging
             if(waitCnt >= maxWaitCnt){  // if we stayed still for too long, go backwards for a few seconds
-                Serial.println("waitCnt exceeded"); delay(10) ;
+                Serial.println("waitCnt exceeded"); delay(10) ; // comment out when not debugging
                 digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-                for(i = 0; i < n; i++){ // move backwards
-                    analogWrite(carVeloc_g, MOTOR_2_PWM) ; delay(10) ;
+                for(i = 0; i < (maxN << 1); i++){ // move backwards
+                    //digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+                    //analogWrite(maxVeloc, MOTOR_2_PWM) ; //delay(5) ;
+                    analogWrite(MOTOR_2_PWM, boostCarVeloc) ;
                 }
                 waitCnt = 0 ;
             } else{
-              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW); delay(10) ;
-              outputPWM(0, MOTOR_2_PWM); delay(10) ;  
+              outputPWM(0, MOTOR_2_PWM); delay(5) ;  
+              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW); delay(5) ;
             }
             waitCnt++ ;
           }
@@ -960,23 +974,29 @@ int TickFct_waterGun(int state){
   static unsigned char waterCnt = 0 ;
   static int theta = 90 ;
   static unsigned char errCnt = 0 ;
+
+  #if 1   // test variables
+    static Bool testTurnOnGun = True ;
+  #endif
   
   switch(state){  // state transitions
     case SM7_init:
       state = SM7_wait ;
       
       // test squirt gun and servo motor
-      myServo.write(180) ;
+      myServo.write(maxDeg_g) ; // write to max angle
       delay(20) ;
       digitalWrite(SQUIRT_MOTOR, LOW) ;
-      for(i = 0; i < 20; i++){
+      for(i = 0; i < 10; i++){
           digitalWrite(SQUIRT_MOTOR, HIGH) ;
           delay(20) ;
       }
+      digitalWrite(SQUIRT_MOTOR, LOW) ;
       delay(200) ;
       break ;
     case SM7_wait:
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
+      #if 0
       if(!turnOnGun_g){ // gun cannot be used
         state = SM7_wait ;  
       } else{ // gun can be used
@@ -991,6 +1011,26 @@ int TickFct_waterGun(int state){
           state = SM7_ERROR ;
         }
       }
+      #endif
+
+      #if 1   // test the SM without using the weight sensor
+        Serial.print("isPlant_g = "); Serial.println(isPlant_g) ;
+        Serial.print("isObject_g = "); Serial.println(isObject_g) ; delay(20) ;
+        if(!testTurnOnGun){
+            state = SM7_wait ;
+        } else{
+          if(!isPlant_g && isObject_g){
+            state = SM7_shootObject ;
+            theta = angleRPi_g ;  
+          } else if(isPlant_g && !isObject_g){
+            state = SM7_waterPlant ;
+            theta = minDeg_g ;  
+          } else{
+            state = SM7_ERROR ;
+            theta = 90 ;  
+          }
+        }
+      #endif
       break ;
     case SM7_waterPlant:
       Serial.println("DEBUG STATEMENT: SM7_waterPlant") ;
@@ -1018,7 +1058,7 @@ int TickFct_waterGun(int state){
       break ;
     case SM7_ERROR: // used for debugging
       Serial.println("DEBUG STATEMENT: SM7_ERROR") ;
-      if(errCnt < 250){
+      if(errCnt < 20){
         state = SM7_ERROR ;
       } else{
         state = SM7_wait ;
@@ -1035,7 +1075,7 @@ int TickFct_waterGun(int state){
       break ;
     case SM7_wait:
       myServo.write(theta) ;
-      checkWater_g = (waterCnt == 5 ? True : False) ;
+      checkWater_g = (waterCnt == 200 ? True : False) ; // 5 --> 200
       waterCnt = (checkWater_g == True ? 0 : waterCnt) ;
       digitalWrite(SQUIRT_MOTOR, LOW) ;
       break ;
@@ -1527,8 +1567,8 @@ int32_t calculateInteg(int32_t errorVal, int32_t integralVal){
 */
 
 void event(int byteCount){
-  volatile unsigned char buf[8] = "" ;
-  volatile unsigned int arr[4] ;
+  volatile unsigned char buf[4] = "" ;  // [8] --> [4]
+  volatile unsigned int arr[2] ;    // [4] --> [2]
   
   while(Wire.available()) {               //Wire.available() returns the number of bytes available for retrieval with Wire.read(). Or it returns TRUE for values >0.
       for(int i = 0; i < byteCount; i++){ // place read bytes into array
@@ -1540,55 +1580,57 @@ void event(int byteCount){
       //Serial.print(" \n");
        
      if ((arr[0] & 0x08) == 8){
-       //take info, do conversions, else, ignore
-        //degrees=0;
-        //degrees= degrees | arr[1]<<4;
-        //degrees= degrees | arr[2];  
-
         // get angle
-        angleRPi_g = 0 ;  // reset angle to 0
-        angleRPi_g |= arr[1] << 4 ;
-        angleRPi_g |= arr[2] ;
+        // check if previous angle is similar to new angle
+        if(((prevAngleRPi_g - 5) < arr[1]) && (arr[1] < prevAngleRPi_g + 5)){ // arr[1] is similar to previous angle
+          angleRPi_g = prevAngleRPi_g ;
+        } else{ // arr[1] is not similar to previous angle
+          // store angle into previous angle
+          prevAngleRPi_g = angleRPi_g ;
+          // give angleRPi_g the new angle
+          angleRPi_g = arr[1] ;
+        }
+
+        Serial.print("angleRPi_g = "); Serial.println(angleRPi_g) ;
 
         // check to see if returned degrees goes above/under max/min angle
         if(angleRPi_g > maxDeg_g){
-          angleRPi_g = maxDeg_g ;  
+          angleRPi_g = maxDeg_g ;
         } else if(angleRPi_g < minDeg_g){
-          angleRPi_g = minDeg_g ;  
+          angleRPi_g = minDeg_g ;
         }
-        //Serial.print(degrees); Serial.print(" ");
-        //Serial.print("= degrees, our coordinate!\n");
      
-        if((arr[0] & 0x07) > 0){  // determine if object is found
-          isObject_g = True ;  
+        // objects are: numbers, animals, and human (not plants!)
+        if(((arr[0] & 0x07) > 0) && ((arr[0] & 0x07) < 0x07)){  // determine if object is found
+          isObject_g = True ;
         } else{
-          isObject_g = False ;  
+          isObject_g = False ;
         }
 
         if((arr[0] & 0x07) == 0x07){  // determine if a plant was found
-          isPlant_g = True ;  
+          isPlant_g = True ;
         } else{
-          isPlant_g = False ;  
+          isPlant_g = False ;
         }
         //class_n = arr[0] & 0x07; //bit mask left-most number to keep last 3 bits >>1;
         //Serial.print(class_n);
         //Serial.print("= was that class num correct?\n");
            #if 0
-             if (class_n==0) {
+             if (class_n==0) {  // 0x0  ... 0b0000
                strcpy(name, "zero") ;
-             } else if (class_n==1){
+             } else if (class_n==1){  // 0x1  ... 0b0001
                strcpy(name, "one") ;
-             } else if (class_n==2){
+             } else if (class_n==2){  // 0x2  ... 0b0010
                strcpy(name, "two") ;
-             } else if (class_n==3){
+             } else if (class_n==3){  // 0x3  .. 0b0011
                strcpy(name, "three") ;
-             } else if (class_n==4){
+             } else if (class_n==4){  // 0x4  ... 0b0100
                strcpy(name, "squirrel") ;
-             } else if (class_n==5){
+             } else if (class_n==5){  // 0x5  ... 0b0101
                strcpy(name, "raccoon") ;
-             } else if (class_n==6){
+             } else if (class_n==6){  // 0x6  ... 0b0110
                strcpy(name, "person") ;
-             } else if (class_n==7){
+             } else if (class_n==7){  // 0x7  ... 0b0111
                strcpy(name, "potted plant") ;
              } else{ 
                 __asm("nop") ;
@@ -1599,10 +1641,12 @@ void event(int byteCount){
            #endif
        } else{
          angleRPi_g = 0 ;
+         isPlant_g = 0 ;
+         isObject_g = 0 ;
        }
    }
-   // get distance
-   distRPi_g = (unsigned char)arr[3] ; // get distance value form I2C
+   // get distance ... no longer needed
+   //distRPi_g = (unsigned char)arr[3] ; // get distance value form I2C
 }
 
 /* 
@@ -1785,115 +1829,4 @@ float measureMass(void){
   return massToReturn ;
 }
 
-/* 
-  Function name: initKNN
-  Purpose: Initializes test values for KNN algo
-  Details: Uses test points in order to train algo in determining 
-           correct approximate distance measured
-
-  Parameters:
-    None
-  Return Value:
-    None
-*/
-#if 0
-void initKNN(void){
-  // x is Teensy, y is RPi
-  
-  // set up true approx distance
-  approxDistKNN[0].x = 15 ; // 15 [cm] 
-  approxDistKNN[0].y = 18 ; // 18 [cm]
-  approxDistKNN[0].correctDist = True ;
-
-  approxDistKNN[1].x = 20 ;
-  approxDistKNN[1].y = 23 ;
-  approxDistKNN[1].correctDist = True ;
-
-  approxDistKNN[2].x = 25 ;
-  approxDistKNN[2].y = 25 ;
-  approxDistKNN[2].correctDist = True ;
-
-  approxDistKNN[3].x = 35 ;
-  approxDistKNN[3].y = 37 ;
-  approxDistKNN[3].correctDist = True ;
-
-  approxDistKNN[4].x = 40 ;
-  approxDistKNN[4].y = 43 ;
-  approxDistKNN[4].correctDist = True ;
-
-  // set up false approx distance
-  approxDistKNN[5].x = 50 ;
-  approxDistKNN[5].y = 65 ;
-  approxDistKNN[5].correctDist = False ;
-
-  approxDistKNN[6].x = 65 ;
-  approxDistKNN[6].y = 50 ;
-  approxDistKNN[6].correctDist = False ;
-
-  approxDistKNN[7].x = 80 ;
-  approxDistKNN[7].y = 90 ;
-  approxDistKNN[7].correctDist = False ;
-
-  approxDistKNN[8].x = 95 ;
-  approxDistKNN[8].y = 50 ;
-  approxDistKNN[8].correctDist = False ;
-
-  approxDistKNN[9].x = 75 ;
-  approxDistKNN[9].y = 90 ;
-  approxDistKNN[9].correctDist = False ;
-}
-#endif
-
-/* 
-  Function name: compareDistance
-  Purpose: Compares calculated distance of Teensy and Pi
-  Details: Compares the distance measured and returns whether or not to 
-           trust the returned value. Since Teensy's sensor is the most accurate,
-           it is a linear function. Check if RPi distance is within a margin of error.
-
-  Parameters:
-    TODO
-  Return value:
-    True/False
-*/
-Bool compareDistance(void){
-  const unsigned char n = 50 ;  // size of arrays we will make
-  signed char num = 0 ;
-  
-  // displacement = 4 ;
-  const signed char fx[n] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,     // f(x) = x (linear)
-                  11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-                  21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 
-                  31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 
-                  41, 42, 43, 44, 45, 46, 47, 48, 49 } ;
-  
-  const signed char gx[n] = { 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,   // g(x) = x + displacement
-                  15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 
-                  25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 
-                  35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 
-                  45, 46, 47, 48, 49, 50, 51, 52, 53 } ;
-                  
-  const signed char hx[n] = { -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 
-                  8, 9, 10, 11, 12, 13, 14, 15, 16, 17,    // h(x) = x - displacement
-                  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 
-                  28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-                  38, 39, 40, 41, 42, 43, 44, 45 } ;
-  
-  for(unsigned char i = 0; i < n; i++){ // look for index from fx
-    if(distTeensy_g <= fx[i]){
-        num = i ;
-        break ;
-    }
-  }
-
-  Serial.print("compareDistance: distTeensy_g = "); Serial.println(distTeensy_g) ;
-  delay(1000) ;
-
-  // h(x = num) <= distRPi_g <= g(x = num)  ... within margin of error
-  if((hx[num] <= distRPi_g) && (distRPi_g <= gx[num])){   // returns whether or not RPi distance is within margin of error
-    return True ;
-  }
-
-  return False ;
-}
 /* end functions */
