@@ -201,15 +201,15 @@ void testFun(int state){
 
         case 0x01:
           if (plants[1].priority == high){
-            plants[0].priority = low;
-            plants[0].isWatered = True;
+            plants[1].priority = low;
+            plants[1].isWatered = True;
           }
         break;
 
         case 0x02:
           if (plants[2].priority == high){
-            plants[0].priority = low;
-            plants[0].isWatered = True;
+            plants[2].priority = low;
+            plants[2].isWatered = True;
           }
         break;
 
