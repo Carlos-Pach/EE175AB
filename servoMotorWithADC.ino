@@ -349,11 +349,12 @@ int TickFct_LEDs(int state){
 
 /* State Machine 3 */
 int TickFct_servos(int state){
-  static unsigned char i = 0 ; ; // used to control motor for a set duration
+  static unsigned short i = 0 ; ; // used to control motor for a set duration
   static unsigned int waitCnt = 0 ; // used to reverse out of stuck position
   const unsigned int maxWaitCnt = 50 ; // max time to wait in stuck position
   static volatile Bool objectDetected = False ;  // True when isPlant_g OR isObject_g is True
-  static volatile Bool withinRange = False ;  // determines if object detected is within range (only dead ahead of car)
+  const unsigned short n = 500 ;   // time it takes to go backwards ~3 [s] ... can be changed after testing
+  //static volatile Bool withinRange = False ;  // determines if object detected is within range (only dead ahead of car)
   
   switch(state){  // state transitions
     case SM3_init:
@@ -394,8 +395,60 @@ int TickFct_servos(int state){
       // determine if an object was detected
       objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
       // determine if an object is straight ahead
-      withinRange = compareDistance() ;
+      //withinRange = compareDistance() ;
 
+      #if 1
+
+      switch(objectDetected){
+        case True:
+          // stop car, object straight ahead
+          Serial.println("objectDetected"); delay(10) ;
+          Serial.println("Still"); delay(10) ;
+
+          digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+          outputPWM(0, MOTOR_2_PWM); delay(10) ;
+          break ; // end case True
+        
+        case False:
+          // object or obstacle not detected, determine distance with teensy sensor
+          Serial.println("!objectDetected");
+          if(distTeensy_g > 50){ // more than 50 [cm] of free space
+            // keep moving forward
+            Serial.println("Forwards"); delay(10) ;
+            digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW); delay(10) ;
+            analogWrite(carVeloc_g, MOTOR_2_PWM); delay(10) ;
+          } else if(distTeensy_g < 30){ // less than 30 cm from an object/obstacle
+            // move backwards
+            Serial.println("Backwards"); delay(10) ;
+            digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH); delay(10) ;
+            analogWrite(carVeloc_g, MOTOR_2_PWM) ; delay(10) ;
+          } else{ // unknown object ahead ... stay still
+            Serial.println("Still") ;
+            if(waitCnt >= maxWaitCnt){  // if we stayed still for too long, go backwards for a few seconds
+                Serial.println("waitCnt exceeded"); delay(10) ;
+                digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+                for(i = 0; i < n; i++){ // move backwards
+                    analogWrite(carVeloc_g, MOTOR_2_PWM) ; delay(10) ;
+                }
+                waitCnt = 0 ;
+            } else{
+              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW); delay(10) ;
+              outputPWM(0, MOTOR_2_PWM); delay(10) ;  
+            }
+            waitCnt++ ;
+          }
+          break ; // end case False
+        
+        default:
+          Serial.println("DEBUG: motor default case"); delay(10) ;
+          digitalWrite(DIAGNOSE_LED, HIGH) ; delay(1000) ;
+          digitalWrite(DIAGNOSE_LED, LOW) ; delay(1000) ;
+          break ; // end case default
+      }
+      
+      #endif
+      
+      #if 0
       switch(withinRange){  // main switch statement for this SM
         case True:
           switch(objectDetected){
@@ -493,6 +546,7 @@ int TickFct_servos(int state){
             delay(1000) ;
             break ; 
       }
+      #endif
 
       #if 0
         if(distTeensy_g > 50){  // object not in range yet
