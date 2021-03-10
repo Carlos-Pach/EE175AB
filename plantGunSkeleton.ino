@@ -55,10 +55,9 @@ Bool checkWater_g = False ; // value from weight sensor code to see if we need t
 unsigned char angleRPi_g = 70 ; // change when testing/debugging
 unsigned char minAngle_g = 35 ; // can be changed later during testing
 unsigned char maxAngle_g = 165 ;  // can be changed later during testing
-PLANT_NUM plantNumSeen_g ;  // plant num read from RPi
+PLANT_NUM plantNumSeen_g = 0x02; ;  // plant num read from RPi
 
 int state ;
-int n;
 
 enum SM_waterGun{SM_init, SM_wait, SM_checkNumber, SM_waterPlant, SM_shootObject, SM_ERROR} ;
 int TickFct_waterGun(state) ;
@@ -80,6 +79,7 @@ void testFun(int state){
       
     case SM_wait:
       Serial.println("SM_wait") ;
+      state = SM_checkNumber;
       if(!turnOnGun_g){ // gun cannot be used
         state = SM_wait ;  
       } else{ // gun is allowed to be used ... see what we are shooting
@@ -90,27 +90,40 @@ void testFun(int state){
         } else{ // go into error for debugging
           state = SM_ERROR ;
         }
-      }
+      } 
       delay(500) ;
       break ;
       
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     case SM_checkNumber:
-      Serial.println("SM_checkNumber");
-      for (i=0;i<3;i++){  // find index of plantNum == plantNumSeen
-        if(plants[i].plantNum == plantNumSeen_g){
-          n = i;
-          break;
-        }
+      switch(plantNumSeen_g){
+        case 0x00:
+          if (plants[0].priority == high){
+            state = SM_waterPlant;
+          } else{
+            state = SM_wait;
+          }
+        break;
+
+        case 0x01:
+          if (plants[1].priority == high){
+            state = SM_waterPlant;
+          } else{
+            state = SM_wait;
+          }
+        break;
+
+        case 0x02:
+          if (plants[2].priority == high){
+            state = SM_waterPlant;
+          } else{
+            state = SM_wait;
+          }
+        break;
+
+        default:
+          state = SM_wait;
       }
-      return n;
-      if (plants[n].priority == high){  // check priority
-        state = SM_waterPlant;
-      }
-      else{
-        state = SM_wait;
-      }
-      delay(500);
     break;
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -177,11 +190,32 @@ void testFun(int state){
       break ;
       
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    case SM_checkNumber:
-      Serial.println("theta (checkNumber) = angleRPi_g deg") ;
-      // if plant and priority were correct
-        plants[n].isWatered = True;
-      // else
+    case SM_checkNumber:  //actions
+      switch(plantNumSeen_g){
+        case 0x00:
+          if (plants[0].priority == high){
+            plants[0].priority = low;
+            plants[0].isWatered = True;
+          }
+        break;
+
+        case 0x01:
+          if (plants[1].priority == high){
+            plants[0].priority = low;
+            plants[0].isWatered = True;
+          }
+        break;
+
+        case 0x02:
+          if (plants[2].priority == high){
+            plants[0].priority = low;
+            plants[0].isWatered = True;
+          }
+        break;
+
+        default:
+          break;
+      }
     break;
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
