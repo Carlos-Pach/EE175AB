@@ -1,10 +1,10 @@
 #include <SoftwareSerial.h>
 
-#define bt_power 12 //5v
 #define pot A7
+#define ledPin 13
 int potVal = 0;
-int plantNum = 0x01;
-int desiredVal = 562;
+int plantNum = 0x00;
+int desiredVal = 450;  // pot reading between 300 and 600
 bool isWatered = true;
 unsigned char myVal = 0x00;
 
@@ -14,20 +14,15 @@ void setup()
 {
   mySerial.begin(38400);
   pinMode(pot, INPUT);
-  pinMode(bt_power, OUTPUT);
+  pinMode(ledPin, OUTPUT);
   
   // set the pins to LOW
-  digitalWrite(bt_power, LOW);
+  digitalWrite(ledPin,LOW);
 }
 
 void loop()
 {
-  // power on the BT
-  digitalWrite(bt_power, HIGH);
-  delay(30000); // bluetooth should connect by this time
-
   potVal = analogRead(A7);
-  // pot reading between 750 and 0, if we get 75% = 562
   if (potVal < desiredVal){
     isWatered = bitWrite(myVal,2,0);
   }
@@ -37,11 +32,11 @@ void loop()
   
   myVal = myVal | plantNum;
   myVal = myVal | (potVal/32) << 3;
-  mySerial.println(myVal, HEX);
+  mySerial.print(myVal, HEX);
   myVal = 0x00;
-  
+  digitalWrite(ledPin,HIGH);
   delay(100);
-  digitalWrite(bt_power, LOW);
-  
-  delay(120200);
+  digitalWrite(ledPin, LOW);
+
+  delay(4000);
 }
