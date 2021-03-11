@@ -63,8 +63,8 @@ uint16_t linSearch(const uint16_t arr[], const uint16_t hexArr[], uint8_t n, uin
 uint16_t potValHex = 0 ;
 uint8_t n = sizeof(plantEncoder)/sizeof(plantEncoder[0]) ; // size of both arrs
 int potVal = 0;
-int plantNum = 0x00;
-int desiredVal = 450;  // pot reading between 300 and 600
+int plantNum = 0x01 ;
+int desiredVal = 500;  // pot reading between 300 and 600
 bool isWatered = true;
 unsigned char myVal = 0x00;
 
@@ -98,8 +98,7 @@ void loop()
   myVal = myVal | plantNum;
   //myVal = myVal | (potVal/32) << 3;
   myVal = myVal | (potValHex << 3) ;
-  //mySerial.print(myVal, HEX);
-  mySerial.write(myVal) ;
+  mySerial.write(myVal);
   Serial.print("\nmyVal = "); Serial.print(myVal, HEX);
   myVal = 0x00;
   
