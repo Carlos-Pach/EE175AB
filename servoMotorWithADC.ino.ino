@@ -189,7 +189,7 @@ Bool isPlant_g = False ;    // detects plant from RPi    False --> True (for tes
 Bool isObject_g = False ;   // detects object from RPi   False --> True (for testing)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
-Bool carstops = True;
+Bool carstops_g = True;
 // data from RPi
 //volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g = 16 ; // distance calculated by Teensy ... set to 16 in order to not reverse in start up
@@ -372,7 +372,7 @@ int TickFct_servos(int state){
       objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
       // determine if an object is straight ahead
       //withinRange = compareDistance() ;
-      if (!carstops) {
+      if (!carstops_g) {
         #if 1
   
         switch(objectDetected){
@@ -664,12 +664,12 @@ int TickFct_HC05(int state){
 
       //only enter when all plants have sent data at least once
       if((plants[0].data > 0) && (plants[1].data > 0) && (plants[2].data > 0)){
-        carstops = False;
+        carstops_g = False;
         // sort plant priority
         bubbleSortPlant() ;
       }
       else {
-        carstops = True;
+        carstops_g = True;
       }
       
       delay(100) ;
