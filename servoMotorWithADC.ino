@@ -249,11 +249,11 @@ float measureMass(void) ;  // measures current mass of weight sensor
 int TickFct_checkIfPressed(int state){
   switch(state){ // state transitions
     case SM1_init:
-      Serial.println("SM1_init") ;
+      //Serial.println("SM1_init") ;
       state = SM_isPressed ;
       break ;
     case SM_isPressed:
-      Serial.println("SM_isPressed") ;
+      //Serial.println("SM_isPressed") ;
       state = SM_isPressed ;
       break ; 
     default:
@@ -267,7 +267,7 @@ int TickFct_checkIfPressed(int state){
     case SM_isPressed:
       // If digitalRead returns 0, assign False to buttonPressed_g , otherwise assign True 
       buttonPressed_g = (digitalRead(buttonPin) == 0 ? False : True) ;
-      Serial.print("buttonPressed_g: "); Serial.println(buttonPressed_g) ;
+      //Serial.print("buttonPressed_g: "); Serial.println(buttonPressed_g) ;
       break ;
     default:
       break ;
@@ -287,7 +287,7 @@ int TickFct_LEDs(int state){
       }
       break ;
     case SM_onLED:
-      Serial.println("SM_onLED") ;
+      //Serial.println("SM_onLED") ;
       if(buttonPressed_g){
         state = SM_onLED ;  
       } else{
@@ -295,7 +295,7 @@ int TickFct_LEDs(int state){
       }
       break ;
     case SM_offLED:
-      Serial.println("SM_offLED") ;
+      //Serial.println("SM_offLED") ;
       //delay(250) ;
       if(buttonPressed_g){
         state = SM_onLED ;  
@@ -313,11 +313,11 @@ int TickFct_LEDs(int state){
       break ;
     case SM_onLED:
       //valPWM_g = analogRead(pinA0) ;
-      Serial.print("DEBUG STATEMENT: valPWM_g = ") ; Serial.println(valPWM_g) ;
+      //Serial.print("DEBUG STATEMENT: valPWM_g = ") ; Serial.println(valPWM_g) ;
       outputPWM(valPWM_g, pin10_PWM) ; // turn LED on
       break ;
     case SM_offLED:
-      Serial.println("DEBUG STATEMENT: offLED action") ;
+      //Serial.println("DEBUG STATEMENT: offLED action") ;
       // remove bottom statement so binSearch wont be called every time
       //outputPWM(0, pin10_PWM) ;           // turn off LED (pin 10)
       //valPWM_g = analogRead(pinA0) ;  // update valPWM_g to test motor speed changes
@@ -371,11 +371,6 @@ int TickFct_servos(int state){
     case SM3_init:
       break ;
     case SM3_turnOffServo:
-      #if 0
-        // turn off motors
-        digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-      #endif
-      
       // determine if an object was detected
       objectDetected = ((isPlant_g == True) || (isObject_g == True)) ? True : False ;
       // determine if an object is straight ahead
@@ -388,8 +383,8 @@ int TickFct_servos(int state){
           // stop car, object straight ahead
 
           //comment these out when not testing/debugging
-          Serial.println("objectDetected"); //delay(10) ;
-          Serial.println("Still"); //delay(10) ;
+          //Serial.println("objectDetected"); //delay(10) ;
+          //Serial.println("Still"); //delay(10) ;
 
           digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
           outputPWM(0, MOTOR_2_PWM); //delay(10) ;
@@ -397,27 +392,27 @@ int TickFct_servos(int state){
         
         case False:
           // object or obstacle not detected, determine distance with teensy sensor
-          Serial.println("!objectDetected");  // comment out when not debugging
+          //Serial.println("!objectDetected");  // comment out when not debugging
           if(distTeensy_g > 50){ // more than 50 [cm] of free space
             // keep moving forward
-            Serial.println("Forwards"); //delay(10) ; // comment out when not debugging
+            //Serial.println("Forwards"); //delay(10) ; // comment out when not debugging
             digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW); delay(5) ;
             //analogWrite(carVeloc_g, MOTOR_2_PWM); delay(5) ;
             analogWrite(MOTOR_2_PWM, carVeloc_g) ;
           } else if(distTeensy_g < 30){ // less than 30 cm from an object/obstacle
             // move backwards
-            Serial.println("Backwards"); //delay(10) ;  // comment out when not debugging
+            //Serial.println("Backwards"); //delay(10) ;  // comment out when not debugging
             digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH);
             
             if(distTeensy_g <= 15){ // overshot the acceleration and we are right next to wall ... give a jump start
-              Serial.println("distTeensy <= 15") ;
+              //Serial.println("distTeensy <= 15") ;
               for(i = 0; i < n; i++){
                   //analogWrite(boostCarVeloc, MOTOR_2_PWM) ;
                   analogWrite(MOTOR_2_PWM, boostCarVeloc) ;
               }
             }
             if(waitCnt >= maxWaitCnt){  // if we are stuck in backwards state, give car a boost
-              Serial.println("waitCnt exceeded") ;
+              //Serial.println("waitCnt exceeded") ;
               for(i = 0; i < n; i++){
                 //analogWrite(maxVeloc, MOTOR_2_PWM);
                 analogWrite(MOTOR_2_PWM, boostCarVeloc) ;
@@ -435,9 +430,9 @@ int TickFct_servos(int state){
             analogWrite(MOTOR_2_PWM, carVeloc_g) ;
             waitCnt++ ;
           } else{ // unknown object ahead ... stay still
-            Serial.println("Still") ; // comment out when not debugging
+            //Serial.println("Still") ; // comment out when not debugging
             if(waitCnt >= maxWaitCnt){  // if we stayed still for too long, go backwards for a few seconds
-                Serial.println("waitCnt exceeded"); delay(10) ; // comment out when not debugging
+                //Serial.println("waitCnt exceeded"); delay(10) ; // comment out when not debugging
                 digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
                 for(i = 0; i < (maxN << 1); i++){ // move backwards
                     //digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
@@ -460,149 +455,6 @@ int TickFct_servos(int state){
           break ; // end case default
       }
       
-      #endif
-      
-      #if 0
-      switch(withinRange){  // main switch statement for this SM
-        case True:
-          switch(objectDetected){
-            case True:  // stop the car, object is straight ahead
-              Serial.println("DEBUG STATEMENT: withinRange, objectDetected") ;
-              Serial.println("Still") ;
-              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-              outputPWM(0, MOTOR_2_PWM) ;
-              break ;
-            case False:
-              Serial.println("DEBUG STATEMENT: withinRange, !objectDetected") ;
-              Serial.println("Forward") ;
-              digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
-              analogWrite(MOTOR_2_PWM, carVeloc_g) ;
-              break ;
-            default:
-              Serial.println("DEBUG STATEMENT: withinRange, default") ;
-              digitalWrite(DIAGNOSE_LED, HIGH) ;
-              delay(1000) ;
-              break ;
-          }
-        break ;
-          
-        case False:
-          switch(objectDetected){
-            case True:  // stop the car, object straight ahead
-              Serial.println("DEBUG STATEMENT: !withinRange, objectDetected") ;
-              Serial.println("Still") ;
-              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-              break ;
-              
-            case False:
-              Serial.println("DEBUG STATEMENT: !withinRange, !objectDetected") ;
-              if(distTeensy_g > 50){  // object not in range yet
-                // go forwards
-                Serial.println("Forward") ;
-                digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-        
-                // check if motors need to jump start
-                if(jumpStart_g){
-                  for(i = 0; i < 10; i++){
-                    outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-                    delay(5) ;
-                  }
-                }
-                outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-                jumpStart_g = False ;
-              } else if(distTeensy_g < 30){  // object out of range
-                // go backwards 
-                Serial.println("Backwards") ;
-                digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
-        
-                // check if motors need to jump start
-                if(jumpStart_g){
-                  for(i = 0; i < 10; i++){
-                    outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-                    delay(5) ;
-                  }
-                }
-                outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-                jumpStart_g = False ;
-              } else{   // object within range
-                // stay still
-                Serial.println("Still") ;
-                digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-                outputPWM(0, MOTOR_2_PWM); delay(10) ;
-                
-                jumpStart_g = True ;
-                
-                if(waitCnt >= maxWaitCnt){  // reverse out of stuck position
-                  waitCnt = 0 ;
-                  for(int j = 0; j < 25; j++){  // reverse out of stuck position ... change 25 into better number
-                    digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
-                    analogWrite(MOTOR_2_PWM, carVeloc_g) ; delay(10) ;
-                  }
-                }
-                digitalWrite(DIAGNOSE_LED, HIGH) ;
-                waitCnt++ ; // increment waitCnt
-                
-              }
-            break ;
-              
-            default:
-              Serial.println("DEBUG STATEMENT: !withinRange, default") ;
-              digitalWrite(DIAGNOSE_LED, HIGH) ;
-              digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
-              outputPWM(0, MOTOR_2_PWM) ; delay(10) ;
-              delay(1000) ;
-              break ;
-          }
-          break ;
-          default:
-            Serial.println("DEBUG STATEMENT: default") ;
-            digitalWrite(DIAGNOSE_LED, HIGH) ;
-            delay(1000) ;
-            break ; 
-      }
-      #endif
-
-      #if 0
-        if(distTeensy_g > 50){  // object not in range yet
-          // go forwards
-          Serial.println("Forward") ;
-          //digitalWrite(MOTOR_1A_PIN, LOW) ; digitalWrite(MOTOR_1B_PIN, HIGH) ;
-          digitalWrite(MOTOR_2A_PIN, HIGH) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-  
-          // check if motors need to jump start
-          if(jumpStart_g){
-            for(i = 0; i < 10; i++){
-              outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-              delay(5) ;
-            }
-          }
-          outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-          jumpStart_g = False ;
-        } else if(distTeensy_g < 30){  // object out of range
-          // go backwards 
-          Serial.println("Backwards") ;
-          //digitalWrite(MOTOR_1A_PIN, HIGH) ; digitalWrite(MOTOR_1B_PIN, LOW) ;
-          digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, HIGH) ;
-  
-          // check if motors need to jump start
-          if(jumpStart_g){
-            for(i = 0; i < 10; i++){
-              outputPWM(arrPWM[5], MOTOR_2_PWM) ;
-              delay(5) ;
-            }
-          }
-  
-          //outputPWM(carVeloc_g, MOTOR_1_PWM); delay(10) ;
-          outputPWM(carVeloc_g, MOTOR_2_PWM); delay(10) ;
-          jumpStart_g = False ;
-        } else{   // object within range
-          // stay still
-          Serial.println("Still") ;
-          digitalWrite(MOTOR_2A_PIN, LOW) ; digitalWrite(MOTOR_2B_PIN, LOW) ;
-          outputPWM(0, MOTOR_2_PWM); delay(10) ;
-  
-          jumpStart_g = True ;
-        }
       #endif
       
       break ;
@@ -679,7 +531,7 @@ int TickFct_HC05(int state){
       state = SM4_wait ;
       break ;
     case SM4_wait:
-      Serial.println("DEBUG STATEMENT: SM4_wait") ;
+      //Serial.println("DEBUG STATEMENT: SM4_wait") ;
       delay(20) ;
       numBytes = BT.available() ;
       Serial.print("numBytes: "); Serial.println(numBytes) ;
@@ -758,7 +610,7 @@ int TickFct_HC05(int state){
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_0") ;
               Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
               Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
@@ -769,7 +621,7 @@ int TickFct_HC05(int state){
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_1") ;
               Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
               Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
@@ -780,7 +632,7 @@ int TickFct_HC05(int state){
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
 
-            #if 0
+            #if 1
               Serial.println("DEBUG STATEMENT: Plant_2") ;
               Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
               Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
@@ -864,7 +716,7 @@ int TickFct_ultraSonic(int state){
       Serial.println("DEBUG STATEMENT: SM5_init") ;
       break ;
     case SM5_measure:
-      Serial.println("DEBUG STATEMENT: SM5_measure") ;
+      //Serial.println("DEBUG STATEMENT: SM5_measure") ;
       for(i = 0; i < n ; i++){ // measure distance function call
         distanceArr[i] = measureDistance(distanceArr) ;
         j++ ;
@@ -880,7 +732,7 @@ int TickFct_ultraSonic(int state){
         delay(5000) ;
       #endif
       
-      Serial.println("DEBUG STATEMENT: SM5_filter") ;
+      //Serial.println("DEBUG STATEMENT: SM5_filter") ;
       // call EMA filter function
       filterEMA(distanceArr, distanceArrEMA, K_MA) ;
       
@@ -996,6 +848,7 @@ int TickFct_waterGun(int state){
       break ;
     case SM7_wait:
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
+      
       #if 0
       if(!turnOnGun_g){ // gun cannot be used
         state = SM7_wait ;  
@@ -1033,7 +886,7 @@ int TickFct_waterGun(int state){
       #endif
       break ;
     case SM7_waterPlant:
-      Serial.println("DEBUG STATEMENT: SM7_waterPlant") ;
+      //Serial.println("DEBUG STATEMENT: SM7_waterPlant") ;
       if(cnt < 5){
         state = SM7_waterPlant ;
         cnt++ ;
@@ -1045,7 +898,7 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_shootObject:
-      Serial.println("DEBUG STATEMENT: SM7_shootObject") ;
+      //Serial.println("DEBUG STATEMENT: SM7_shootObject") ;
       if(cnt < 5){
         state = SM7_shootObject ;
         cnt++ ;
@@ -1057,7 +910,7 @@ int TickFct_waterGun(int state){
       }
       break ;
     case SM7_ERROR: // used for debugging
-      Serial.println("DEBUG STATEMENT: SM7_ERROR") ;
+      //Serial.println("DEBUG STATEMENT: SM7_ERROR") ;
       if(errCnt < 20){
         state = SM7_ERROR ;
       } else{
@@ -1117,7 +970,7 @@ int TickFct_checkWeightSensor(int state){
       state = SM8_wait ;
       break ;
     case SM8_wait:
-      Serial.println("DEBUG STATEMENT: SM8_wait") ;
+      //Serial.println("DEBUG STATEMENT: SM8_wait") ;
       if(checkWater_g){
         state = SM8_measureWeight ;  
       } else{
@@ -1125,7 +978,7 @@ int TickFct_checkWeightSensor(int state){
       }
       break ;
     case SM8_measureWeight:
-      Serial.println("DEBUG STATEMENT: SM8_measureWeight") ;
+      //Serial.println("DEBUG STATEMENT: SM8_measureWeight") ;
       state = SM8_wait ;
       break ;
     default:
@@ -1297,23 +1150,22 @@ void setup() {
   // initialize plants
   plants[0].plantNum = Plant_0 ;
   plants[0].data = 0 ;
-  plants[0].desiredVal = 0.75 * 1023 ;
+  plants[0].desiredVal = 630 ;  // (0.75 * 1023) --> 630
   plants[0].isWatered = True ;
   plants[0].priority = low ;
 
   plants[1].plantNum = Plant_1 ;
   plants[1].data = 0 ;
-  plants[1].desiredVal = 0.5 * 1023 ;
+  plants[1].desiredVal = 500 ; // (0.5 * 1023) --> 500
   plants[1].isWatered = True ;
   plants[1].priority = medium ;
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
-  plants[2].desiredVal = 0.3 * 1023 ;
+  plants[2].desiredVal = 700 ; // (0.3 * 1023) --> 700
   plants[2].isWatered = True ;
   plants[2].priority = high ;
 
-  //initKNN() ;   // init KNN values
   
   // turn off diagnostic LED
   digitalWrite(DIAGNOSE_LED, LOW) ;  
@@ -1458,7 +1310,7 @@ void filterEMA(unsigned long arr[], unsigned long arrEMA[], unsigned char MA){
   unsigned char i = 0 ; // count
   //unsigned long *ptr = arrEMA ;
 
-  Serial.println("DEBUG STATEMENT: filterEMA") ;
+  //Serial.println("DEBUG STATEMENT: filterEMA") ;
 //  Serial.print("DEBUG STATEMENT: sizeof arr ") ; Serial.println(sizeof(arr)/sizeof(arr[0])) ;
   
   #if 0
@@ -1776,7 +1628,7 @@ void bubbleSortPlant(void){
     }
   }
 
-  #if 0
+  #if 1
     for(i = 0; i < NUM_PLANTS; i++){
       Serial.print("Plant: "); Serial.print(plants[i].plantNum) ;
       Serial.print("\nPlant priority: "); Serial.println(plants[i].priority) ;
@@ -1805,7 +1657,7 @@ float measureMass(void){
   volatile float massToReturn = 0.00 ;
   
   newDataReady = (LoadCell.update() == 1 ? True : False) ;  // check if LoadCell has updated data
-  Serial.print("newDataReady = "); Serial.println(newDataReady) ; // print result to serial monitor
+  //Serial.print("newDataReady = "); Serial.println(newDataReady) ; // print result to serial monitor
   
   if(newDataReady){ // read data if it is ready
     massToReturn = LoadCell.getData() ;  
@@ -1813,18 +1665,18 @@ float measureMass(void){
     turnOnGun_g = True ;
   } else{ // otherwise return 0.00
     massToReturn = 0.00 ;
-    Serial.println("DEBUG STATEMENT: data not ready") ;
+    //Serial.println("DEBUG STATEMENT: data not ready") ;
     digitalWrite(DIAGNOSE_LED, HIGH) ;
     turnOnGun_g = False ;
-    Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
+    //Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
     return massToReturn ; // exit function
   }
 
   if(massToReturn < -1*(expectedMass_g - minMass_g)){ // mass values are expected to be neg. as water is used
     digitalWrite(DIAGNOSE_LED, HIGH) ;
-    Serial.println("DEBUG STATEMENT: less than minimum mass") ;
+    //Serial.println("DEBUG STATEMENT: less than minimum mass") ;
     turnOnGun_g = False ;
-    Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
+    //Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
   } 
   return massToReturn ;
 }
