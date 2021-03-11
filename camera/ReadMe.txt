@@ -39,9 +39,18 @@ check by :   echo %PYTHONPATH%
 
 
 for exporting tf:
-conda activate tensorflow-build
-(( IN C:/))
-set PATH=%PATH%;C:\msys64\usr\bin
+(setup)
+	conda activate tensorflow-build
+	(( IN C:/))
+	set PATH=%PATH%;C:\msys64\usr\bin
+(exporting)
+	set CONFIG_FILE=C:\\tensorflow1\models\research\object_detection\training\ssd_mobilenet_v2_quantized_300x300_coco.config
+	set CHECKPOINT_PATH=C:\\tensorflow1\models\research\object_detection\images\model.ckpt-3295
+	set OUTPUT_DIR=C:\\tensorflow1\models\research\object_detection\TFLite_model
+	python export_tflite_ssd_graph.py --pipeline_config_path=%CONFIG_FILE% --trained_checkpoint_prefix=%CHECKPOINT_PATH% --output_directory=%OUTPUT_DIR% --add_postprocessing_op=true
+		then in the FLite_model folder download tflite_graph.pb to Drive and go to:
+		https://colab.research.google.com/drive/1DolVXkn1w0ADa4B_jAuCpjSnyRSApH7D?authuser=2#scrollTo=oBjfejA4FgTf
+		to get the detect file!
 --------------------------------------------------------------------------------------------
 
 INSTALLATION:
