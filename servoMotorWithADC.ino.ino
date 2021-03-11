@@ -189,7 +189,7 @@ Bool isPlant_g = False ;    // detects plant from RPi    False --> True (for tes
 Bool isObject_g = False ;   // detects object from RPi   False --> True (for testing)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
-
+Bool carstops = True;
 // data from RPi
 //volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g = 16 ; // distance calculated by Teensy ... set to 16 in order to not reverse in start up
@@ -516,7 +516,6 @@ int TickFct_servos(int state){
 
 /* State Machine 4 */
 int TickFct_HC05(int state){
-  static volatile Bool carstops = True;
   unsigned char i, numBytes;
   //unsigned char numOfPlant ;
   static unsigned char plantDecodeID = 0x00 ;
