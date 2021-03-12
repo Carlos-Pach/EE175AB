@@ -192,16 +192,21 @@ Bool isPlant_g = False ;    // detects plant from RPi    False --> True (for tes
 Bool isObject_g = False ;   // detects object from RPi   False --> True (for testing)
 Bool checkWater_g = False ; // determines if SM should check sensor or not
 Bool jumpStart_g = True ;   // give RC car wheels a jump start to prevent stalling
+//Bool wateredCurrentPlant_g = False ;  // True when current plant has been watered once
+Bool carStops_g = False ;  // False when all data from plants have been gathered
+Bool isPlantMEM_g = False ; // holds a true instance of a plant being seen ... reset once plant has been watered
+//Bool plantsAlreadySorted_g = False ; // True when all plants have sent data and have been sorted
 
 // data from RPi
 //volatile unsigned char distRPi_g ;  // distance calculated by RPi
 static unsigned long distTeensy_g = 16 ; // distance calculated by Teensy ... set to 16 in order to not reverse in start up
 volatile unsigned char angleRPi_g = 10 ; // angle from RPi (start at 10)
 volatile unsigned char prevAngleRPi_g = 10 ; // save previous angle for comparison in water gun SM
+volatile unsigned char objectType_g = 0x00 ;  // classify object spotted from Rpi
 
 // values for RC car
 unsigned int valPWM_g ; // PWM output value
-const int carVeloc_g = 400 ;  // velocity of car (can be changed later)
+const int carVeloc_g = 450 ;  // velocity of car (can be changed later)
 
 // values for weight sensor
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
@@ -339,7 +344,7 @@ int TickFct_servos(int state){
   const unsigned short n = 20 ;   // time it takes to go backwards ~3 [s] ... can be changed after testing
   const unsigned short maxN = 500 ; // used when the car is directly in front of a wall
   const unsigned short boostCarVeloc = 500 ;  // when in the stuck state, car needs higher starting velocity to speed up
-  const unsigned int maxVeloc = 0x3FF ;   // max velocity to jump start car in stuck position
+  static unsigned int stuckInObjDetected = 0 ;
   
   switch(state){  // state transitions
     case SM3_init:
@@ -376,6 +381,8 @@ int TickFct_servos(int state){
       // determine if an object is straight ahead
       //withinRange = compareDistance() ;
 
+      if(!carStops_g){  // car has received all data from plants
+      Serial.println("!carStops") ; delay(5) ;
       #if 1
 
       switch(objectDetected){
@@ -385,9 +392,36 @@ int TickFct_servos(int state){
           //comment these out when not testing/debugging
           //Serial.println("objectDetected"); //delay(10) ;
           //Serial.println("Still"); //delay(10) ;
-
+          if((stuckInObjDetected % 20) == 0){ // stuck on plant for too long ... fix count after testing
+            
+            if(isPlant_g){  // we are stuck on a plant
+              for(i = 0; i < 100; i++){ // go forwards
+                digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+                analogWrite(MOTOR_2_PWM, boostCarVeloc) ;  
+              }
+              for(i = 0; i < 100; i++){
+                digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+                analogWrite(MOTOR_2_PWM, carVeloc_g) ;
+              }
+              stuckInObjDetected++ ;
+            } else if(isObject_g){  // we are stuck on an animal
+              for(i = 0; i < 100; i++){ // go backwards
+                digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+                analogWrite(MOTOR_2_PWM, boostCarVeloc) ;  
+              }
+              for(i = 0; i < 100; i++){ // go backwards
+                digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH) ;
+                analogWrite(MOTOR_2_PWM, carVeloc_g) ;
+              }
+              stuckInObjDetected++ ;
+            }
+            
+          }
+          stuckInObjDetected = 0 ;
+          
           digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
           outputPWM(0, MOTOR_2_PWM); //delay(10) ;
+          stuckInObjDetected++ ;
           break ; // end case True
         
         case False:
@@ -456,6 +490,12 @@ int TickFct_servos(int state){
       }
       
       #endif
+      }
+      else{ // car has not received all data yet
+        Serial.println("carStops") ;  delay(5) ;
+        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+        outputPWM(0, MOTOR_2_PWM) ; 
+      }
       
       break ;
     case SM3_turnOnServo:
@@ -516,9 +556,7 @@ int TickFct_servos(int state){
 /* State Machine 4 */
 int TickFct_HC05(int state){
   unsigned char i, numBytes;
-  //unsigned char numOfPlant ;
   static unsigned char plantDecodeID = 0x00 ;
-  //char arr[] = {} ;  // create empty array buffer from phone BT terminal
   unsigned char chRecv = 0x00 ; // init char for Rx buffer
   const static unsigned char n = sizeof(plantDecoder)/sizeof(plantDecoder[0]) ;
 
@@ -600,6 +638,8 @@ int TickFct_HC05(int state){
       // read from Rx buffer
       while(numBytes > 0){
         chRecv = BT.read() ;  // read from buffer
+        // check what hex value we have
+        Serial.print("\nchRecv = "); Serial.println(chRecv, HEX) ;
         numBytes-- ;          // decrease count by 1
         
         plantDecodeID = chRecv & 0x03 ;  // find first 2 bits for plant ID
@@ -610,7 +650,7 @@ int TickFct_HC05(int state){
             plants[0].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[0].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_0") ;
               Serial.print("Plant_0 isWatered = "); Serial.println(plants[0].isWatered) ;
               Serial.print("Plant_0 data = "); Serial.println(plants[0].data) ;
@@ -621,7 +661,7 @@ int TickFct_HC05(int state){
             plants[1].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[1].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
             
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_1") ;
               Serial.print("Plant_1 isWatered = "); Serial.println(plants[1].isWatered) ;
               Serial.print("Plant_1 data = "); Serial.println(plants[1].data) ;
@@ -632,7 +672,7 @@ int TickFct_HC05(int state){
             plants[2].data = decodePlantVal(plantDecoder, plantVals, n, (chRecv & 0xF8) >> 3) ;
             plants[2].isWatered = (((chRecv & 0x04) >> 2) == 0x01) ? True: False ;
 
-            #if 1
+            #if 0
               Serial.println("DEBUG STATEMENT: Plant_2") ;
               Serial.print("Plant_2 isWatered = "); Serial.println(plants[2].isWatered) ;
               Serial.print("Plant_2 data = "); Serial.println(plants[2].data) ;
@@ -665,6 +705,10 @@ int TickFct_HC05(int state){
       if((plants[0].data > 0) && (plants[1].data > 0) && (plants[0].data > 0)){
         // sort plant priority
         bubbleSortPlant() ;
+        // start the RC car
+        carStops_g = False ;
+      } else{
+        carStops_g = True ;  
       }
       
       delay(100) ;
@@ -827,7 +871,7 @@ int TickFct_waterGun(int state){
   static int theta = 90 ;
   static unsigned char errCnt = 0 ;
 
-  #if 1   // test variables
+  #if 0   // test variables
     static Bool testTurnOnGun = True ;
   #endif
   
@@ -849,41 +893,39 @@ int TickFct_waterGun(int state){
     case SM7_wait:
       Serial.println("DEBUG STATEMENT: SM7_wait") ;
       
-      #if 0
+      #if 1
       if(!turnOnGun_g){ // gun cannot be used
-        state = SM7_wait ;  
+        state = SM7_wait ;
+        if(isObject_g){
+          theta = angleRPi_g;  // angle the gun anyways to obj
+        } else if(isPlant_g){
+          theta = minDeg_g ;  // angle gun anyways to plant  
+        }
       } else{ // gun can be used
         // animal or object takes greater priority
-        if(!isPlant_g && isObject_g){ // shoot object
-          state = SM7_shootObject ;
-          theta = angleRPi_g ;
+        if(!isPlant_g && isObject_g){ // decide if we shoot object
+          if(objectType_g == 0x06){ // if its a person, dont shoot
+            state = SM7_wait ;
+          } else{ // shoot object
+            state = SM7_shootObject ;
+            theta = angleRPi_g ;
+          }
         } else if(isPlant_g && !isObject_g){  // water plant
           state = SM7_waterPlant ;
           theta = 0 ; // move servo motor
+        } else if(isPlant_g && isObject_g){ // plant and object in frame
+          if(objectType_g == 0x06){ // if its is a human, dont shoot
+            state = SM7_wait ;  
+          } else{ // shoot the object
+            state = SM7_shootObject ; 
+            theta = angleRPi_g ; 
+          }
         } else{ // ERROR
           state = SM7_ERROR ;
         }
       }
       #endif
-
-      #if 1   // test the SM without using the weight sensor
-        Serial.print("isPlant_g = "); Serial.println(isPlant_g) ;
-        Serial.print("isObject_g = "); Serial.println(isObject_g) ; delay(20) ;
-        if(!testTurnOnGun){
-            state = SM7_wait ;
-        } else{
-          if(!isPlant_g && isObject_g){
-            state = SM7_shootObject ;
-            theta = angleRPi_g ;  
-          } else if(isPlant_g && !isObject_g){
-            state = SM7_waterPlant ;
-            theta = minDeg_g ;  
-          } else{
-            state = SM7_ERROR ;
-            theta = 90 ;  
-          }
-        }
-      #endif
+      
       break ;
     case SM7_waterPlant:
       //Serial.println("DEBUG STATEMENT: SM7_waterPlant") ;
@@ -895,6 +937,7 @@ int TickFct_waterGun(int state){
         cnt = 0 ; // reset cnt
         waterCnt++ ;  // increase count to read weight sensor
         theta = 90 ;
+        //wateredCurrentPlant_g = True ;  // plant has been watered ... keep driving
       }
       break ;
     case SM7_shootObject:
@@ -991,8 +1034,10 @@ int TickFct_checkWeightSensor(int state){
       break ;
     case SM8_wait:
       mass = measureMass() ;
+      __asm("nop") ;
       break ;
     case SM8_measureWeight:
+      mass = measureMass() ;
       break ;
     default:
       break ;  
@@ -1150,7 +1195,7 @@ void setup() {
   // initialize plants
   plants[0].plantNum = Plant_0 ;
   plants[0].data = 0 ;
-  plants[0].desiredVal = 630 ;  // (0.75 * 1023) --> 630
+  plants[0].desiredVal = 450 ;  // (0.75 * 1023) --> 630 --> 450
   plants[0].isWatered = True ;
   plants[0].priority = low ;
 
@@ -1162,13 +1207,17 @@ void setup() {
 
   plants[2].plantNum = Plant_2 ;
   plants[2].data = 0 ;
-  plants[2].desiredVal = 700 ; // (0.3 * 1023) --> 700
+  plants[2].desiredVal = 600 ; // (0.3 * 1023) --> 700 --> 600
   plants[2].isWatered = True ;
   plants[2].priority = high ;
 
+  // big delay to allow for time to ready script
+  delay(5000) ;
   
   // turn off diagnostic LED
   digitalWrite(DIAGNOSE_LED, LOW) ;  
+
+  
 }
 
 void loop() {
@@ -1248,7 +1297,7 @@ uint16_t findNum(uint16_t arrPWM[], unsigned int actualVal, unsigned int sizeofA
   Return value:
         arrPlantVal[index]
 */
-uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar){
+uint16_t decodePlantVal(const uint16_t arrCompressedData[], const uint16_t arrPlantVal[], uint8_t n, uint8_t decodeChar){
   unsigned int i ;
   //Serial.println("DEBUG STATEMENT: decodePlantVal") ;
   //delay(2000) ;
@@ -1256,7 +1305,7 @@ uint16_t decodePlantVal(uint16_t arrCompressedData[], uint16_t arrPlantVal[], ui
   
   for(i = 0; i < n; i++){
     if(decodeChar == arrCompressedData[i]){
-      //Serial.print("DEBUG STATEMENT: arrPlantVal = "); Serial.println(arrPlantVal[i]) ;
+      Serial.print("DEBUG STATEMENT: arrPlantVal = "); Serial.println(arrPlantVal[i]) ;
       return arrPlantVal[i] ;
     }  
   }
@@ -1464,6 +1513,9 @@ void event(int byteCount){
         } else{
           isPlant_g = False ;
         }
+
+        objectType_g = arr[0] & 0x07 ;  // get info of first 3 bits
+        
         //class_n = arr[0] & 0x07; //bit mask left-most number to keep last 3 bits >>1;
         //Serial.print(class_n);
         //Serial.print("= was that class num correct?\n");
@@ -1617,24 +1669,28 @@ void bubbleSortPlant(void){
   static unsigned char i, j, tempVal ;
   Serial.println("DEBUG STATEMENT: bubbleSort") ;
 
-  for(i = 0; i < (NUM_PLANTS - 1); i++){
-    for(j = 0; j < (NUM_PLANTS - i - 1); j++){
-      // change sign as when plants are watered the ADC value decreases (< --> >)
-      if(plants[j].data/(float)(plants[j].desiredVal) > plants[j+1].data/(float)(plants[j+1].desiredVal)){  // compare plant data/desiredVal ratio
-          tempVal = plants[j].priority ;
-          plants[j].priority = plants[j+1].priority ;
-          plants[j+1].priority = tempVal ;  
-      }  
+  //if(!plantsAlreadySorted_g){
+    for(i = 0; i < (NUM_PLANTS - 1); i++){
+      for(j = 0; j < (NUM_PLANTS - i - 1); j++){
+        // change sign as when plants are watered the ADC value decreases (< --> >)
+        if(plants[j].data/(float)(plants[j].desiredVal) > plants[j+1].data/(float)(plants[j+1].desiredVal)){  // compare plant data/desiredVal ratio
+            tempVal = plants[j].priority ;
+            plants[j].priority = plants[j+1].priority ;
+            plants[j+1].priority = tempVal ;  
+        }  
+      }
     }
-  }
+  //}
 
-  #if 1
+  #if 1 // keep at 1 for testing purposes
     for(i = 0; i < NUM_PLANTS; i++){
       Serial.print("Plant: "); Serial.print(plants[i].plantNum) ;
       Serial.print("\nPlant priority: "); Serial.println(plants[i].priority) ;
     }
     delay(5000) ;
   #endif
+
+  //plantsAlreadySorted_g = True ;
 }
 
 /* 
@@ -1656,6 +1712,7 @@ float measureMass(void){
   static Bool newDataReady = False ;
   volatile float massToReturn = 0.00 ;
   
+  delay(1000) ; // delay used for waiting for load cell updating
   newDataReady = (LoadCell.update() == 1 ? True : False) ;  // check if LoadCell has updated data
   //Serial.print("newDataReady = "); Serial.println(newDataReady) ; // print result to serial monitor
   
@@ -1663,9 +1720,10 @@ float measureMass(void){
     massToReturn = LoadCell.getData() ;  
     digitalWrite(DIAGNOSE_LED, LOW) ;
     turnOnGun_g = True ;
+    Serial.print("turnOnGun_g = "); Serial.println(turnOnGun_g) ;
   } else{ // otherwise return 0.00
     massToReturn = 0.00 ;
-    //Serial.println("DEBUG STATEMENT: data not ready") ;
+    Serial.println("DEBUG STATEMENT: data not ready") ;
     digitalWrite(DIAGNOSE_LED, HIGH) ;
     turnOnGun_g = False ;
     //Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
@@ -1674,7 +1732,7 @@ float measureMass(void){
 
   if(massToReturn < -1*(expectedMass_g - minMass_g)){ // mass values are expected to be neg. as water is used
     digitalWrite(DIAGNOSE_LED, HIGH) ;
-    //Serial.println("DEBUG STATEMENT: less than minimum mass") ;
+    Serial.println("DEBUG STATEMENT: less than minimum mass") ;
     turnOnGun_g = False ;
     //Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
   } 
