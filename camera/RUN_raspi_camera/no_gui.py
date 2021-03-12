@@ -18,7 +18,8 @@ bus = SMBus(1)      #for i2c using ic2-1 rather than ic2-0 port
 c=0                 #for mapping coordinate of obj
 data_bet= [0,0]   #init final data [] to send over
 flag=0              #see if there is a detection or not
-
+error_flag=0
+dec_list=[0,0]
 print("starting camera program")
 
 
@@ -289,75 +290,61 @@ while True:
             print(label) #or if only want name print object_name
             block.append(object_name)            
 
-
-    # Draw framerate in corner of frame
-    #cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-    
-    
-    #convert, then send data over w i2c
-    if (flag==0):
-        block=[0,"placeholder"] #set flag for leftmost bits to 0, don't do more math
-    dec_list = send_to_pi(block)
-    
-  #  marker = find_marker(frame)
-  #  if marker == 0:
-  ##      inches = 0
-   # else:
-   #     inches = distance_to_camera(KNOWN_WIDTH, focalLength, marker[1][0])
-   #     # draw a bounding box around the image and display it
-   #     newim = int(inches * 2.54)
-   #     if newim>=150:
-   #         newim=0
-    
-  #  dec_list.append(newim)
-    print(dec_list, "DEC_LIST SHOULD Only have two values")
-    
-    
-    #if Kelly's current detected threshold>65%, send data to pi, else send nothing. Even if only Chad's distance from obj is detected.
-    if ((current_score > 65) and (flag==1)) :
-        try:
-            once_flag=0
-            msg = i2c_msg.write(addr,dec_list)
-            bus.i2c_rdwr(msg)
-            time.sleep(.1)
-            print("try succeed hopefully")
-        except:                                 # to handle i2c remote i/o error, just wait and try again
-            try:
-                time.sleep(.2)
-                msg = i2c_msg.write(addr,dec_list)
-                bus.i2c_rdwr(msg)
-                time.sleep(.1)
-                print("try succeed after first error")
-            except:                                 # to handle i2c remote i/o error, just wait and try again
-                time.sleep(.2)
-                msg = i2c_msg.write(addr,dec_list)
-                bus.i2c_rdwr(msg)
-                time.sleep(.1)
-                print("try failed twice ..")
-                print(" WHY HAVE YOU FAILED ME")
-    else:
-        once_flag+=1
-        print("TF Object detector first sees nothing")
-        if (once_flag==1):
-            try:
-                dec_list=[0xF0,0]
-                msg = i2c_msg.write(addr,dec_list)
-                bus.i2c_rdwr(msg)
-                time.sleep(.1)
-                print("try succeed hopefully")
-            except:               
-                time.sleep(.2)
-                dec_list=[0xF0,0]
-                msg = i2c_msg.write(addr,dec_list)
-                bus.i2c_rdwr(msg)
-                time.sleep(.1)       
-        else: #flag>1
-            print("TF Object detector sends nothing")
-        
-    
+            #convert, then send data over w i2c
+            if (flag==0):
+                block=[0,"placeholder"] #set flag for leftmost bits to 0, don't do more math
+            dec_list = send_to_pi(block)
+            
+            print(dec_list, "DEC_LIST SHOULD Only have two values")
+            
+            
+            #if Kelly's current detected threshold>65%, send data to pi, else send nothing. Even if only Chad's distance from obj is detected.
+            if ((current_score > 65) and (flag==1)) :
+                try:
+                    once_flag=0
+                    msg = i2c_msg.write(addr,dec_list)
+                    bus.i2c_rdwr(msg)
+                    time.sleep(.1)
+                    print("try succeed hopefully")
+                except:                                 # to handle i2c remote i/o error, just wait and try again
+                    try:
+                        time.sleep(.2)
+                        msg = i2c_msg.write(addr,dec_list)
+                        bus.i2c_rdwr(msg)
+                        time.sleep(.1)
+                        error_flag+=1
+                        print("try succeed after first error")
+                    except:                                 # to handle i2c remote i/o error, just wait and try again
+                        time.sleep(.2)
+                        msg = i2c_msg.write(addr,dec_list)
+                        bus.i2c_rdwr(msg)
+                        time.sleep(.1)
+                        error_flag+=1
+                        print("try failed twice ..")
+                        print(" WHY HAVE YOU FAILED ME")
+            else:
+                once_flag+=1
+                print("TF Object detector first sees nothing")
+                if (once_flag==1):
+                    try:
+                        dec_list=[0xF0,0]
+                        msg = i2c_msg.write(addr,dec_list)
+                        bus.i2c_rdwr(msg)
+                        time.sleep(.1)
+                        print("try succeed hopefully")
+                    except:               
+                        time.sleep(.2)
+                        dec_list=[0xF0,0]
+                        msg = i2c_msg.write(addr,dec_list)
+                        bus.i2c_rdwr(msg)
+                        time.sleep(.1)       
+                else: #flag>1
+                    print("TF Object detector sends nothing")
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
     print(flag, "flag number")
     print("\n")
     last_block=dec_list.copy()
+    
     
     
     # All the results have been drawn on the frame, so it's time to display it.
@@ -372,6 +359,8 @@ while True:
     # Press 'q' to quit
     if cv2.waitKey(1) == ord('q'):
         print('Final FPS: {0:.2f}'.format(frame_rate_calc))
+        if error_flag!=0 :
+            print("Error flag: ", error_flag)
         break
 
 
