@@ -206,13 +206,13 @@ volatile unsigned char objectType_g = 0x00 ;  // classify object spotted from Rp
 
 // values for RC car
 unsigned int valPWM_g ; // PWM output value
-const int carVeloc_g = 450 ;  // velocity of car (can be changed later)
+const int carVeloc_g = 380 ;  // velocity of car (can be changed later)
 
 // values for weight sensor
 const int calValAddrEEPROM_g = 0 ;  // EEPROM addr
 long t ;  // time elapsed for LoadCell
-const float expectedMass_g = 473.0 ;  // expected mass of weight sensor (half full, can be changed later)
-const float minMass_g = 50.0 ; // minimum mass needed until refill is necessary (can be changed later)
+const float expectedMass_g = 700.0 ;  // expected mass of weight sensor (half full, can be changed later)
+const float minMass_g = 10.0 ; // minimum mass needed until refill is necessary (can be changed later)
 
 // values for water gun
 const unsigned char minDeg_g = 35 ; // minimum angle of servo motor
@@ -428,10 +428,8 @@ int TickFct_servos(int state){
           // object or obstacle not detected, determine distance with teensy sensor
           //Serial.println("!objectDetected");  // comment out when not debugging
           if(distTeensy_g > 50){ // more than 50 [cm] of free space
-            // keep moving forward
             //Serial.println("Forwards"); //delay(10) ; // comment out when not debugging
             digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW); delay(5) ;
-            //analogWrite(carVeloc_g, MOTOR_2_PWM); delay(5) ;
             analogWrite(MOTOR_2_PWM, carVeloc_g) ;
           } else if(distTeensy_g < 30){ // less than 30 cm from an object/obstacle
             // move backwards
@@ -460,7 +458,6 @@ int TickFct_servos(int state){
               analogWrite(MOTOR_2_PWM, carVeloc_g) ;
             }
             digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, HIGH); //delay(10) ;
-            //analogWrite(carVeloc_g, MOTOR_2_PWM) ; //delay(10) ;
             analogWrite(MOTOR_2_PWM, carVeloc_g) ;
             waitCnt++ ;
           } else{ // unknown object ahead ... stay still
@@ -867,6 +864,8 @@ int TickFct_dataFromRPi(int state){
 int TickFct_waterGun(int state){
   static unsigned char cnt = 0 ;
   static unsigned char i = 0 ;
+  static unsigned int j = 0 ;
+  static unsigned int k = 0 ;
   static unsigned char waterCnt = 0 ;
   static int theta = 90 ;
   static unsigned char errCnt = 0 ;
@@ -980,6 +979,14 @@ int TickFct_waterGun(int state){
       for(i = 0; i < 3; i++){  // squirt the gun
         digitalWrite(SQUIRT_MOTOR, HIGH) ;
         delay(10) ;
+        for(j = 0; j < 10; j++){
+          for(k = 0; k < 50; k++){
+            digitalWrite(MOTOR_2A_PIN, HIGH); digitalWrite(MOTOR_2B_PIN, LOW) ;
+            analogWrite(MOTOR_2_PWM, 500) ;  delay(1) ;
+          }  
+        }
+        digitalWrite(MOTOR_2A_PIN, LOW); digitalWrite(MOTOR_2B_PIN, LOW) ;
+        isPlantMEM_g = False ;
       }
       break ;
     case SM7_shootObject:
@@ -1104,7 +1111,7 @@ void setup() {
   
   if (LoadCell.getTareTimeoutFlag()) { // check if pins were correct
     Serial.println("Timeout, check MCU>HX711 wiring and pin designations") ;
-    while(1) ;  // stay in loop until error is corrected
+    //while(1) ;  // stay in loop until error is corrected
   } else {  // set up pins were correct 
     //LoadCell.setCalFactor(calibrationValue); // user set calibration value (float), initial value 1.0 may be used for this sketch
     LoadCell.setCalFactor(calibrationValue) ;
@@ -1510,6 +1517,7 @@ void event(int byteCount){
 
         if((arr[0] & 0x07) == 0x07){  // determine if a plant was found
           isPlant_g = True ;
+          isPlantMEM_g = True ;
         } else{
           isPlant_g = False ;
         }
@@ -1736,6 +1744,7 @@ float measureMass(void){
     turnOnGun_g = False ;
     //Serial.print("turnOnGun = "); Serial.println(turnOnGun_g) ;
   } 
+  delay(10000) ;  // 10 s delay
   return massToReturn ;
 }
 
